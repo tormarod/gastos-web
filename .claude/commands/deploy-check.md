@@ -17,5 +17,13 @@ Check each item and report pass / fail / warning:
 - [ ] `render.yaml` has the correct `startCommand`: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 - [ ] `requirements.txt` lists all imports used in the codebase
 
+**README.md**
+- [ ] Read the current `README.md` and compare it against the actual state of the codebase
+- [ ] Check if any new services, routes, or slash commands were added that are not documented
+- [ ] Check if the project structure table is still accurate
+- [ ] Check if the categorisation rules table reflects what is currently in `services/categorizer.py`
+- [ ] If anything is outdated or missing, update `README.md` before pushing — do not ask, just fix it
+- [ ] Report exactly what was changed in the README (or "README is up to date" if nothing changed)
+
 **After confirming all pass**, run `/push` to commit and deploy.
 If any item fails, fix it first and re-run this checklist.
