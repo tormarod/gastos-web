@@ -249,7 +249,7 @@ async def corrections_page(request: Request, gastos_session: Annotated[str | Non
 
     # Collect unique "Otros" concepts across all months, sorted by impact
     otros: dict[str, dict] = {}
-    for month_data in data["months"].values():
+    for month_data in sorted(data["months"].values(), key=lambda m: m["month"]):
         for tx in month_data["transactions"]:
             if tx["category"] == "Otros" and tx["amount"] < 0:
                 key = tx["concept"]
@@ -259,9 +259,15 @@ async def corrections_page(request: Request, gastos_session: Annotated[str | Non
                         "pattern": suggest_pattern(key),
                         "count": 0,
                         "total": 0.0,
+                        "transactions": [],
                     }
                 otros[key]["count"] += 1
                 otros[key]["total"] = round(otros[key]["total"] + abs(tx["amount"]), 2)
+                otros[key]["transactions"].append({
+                    "date": tx.get("date") or "—",
+                    "month": month_data["month"],
+                    "amount": abs(tx["amount"]),
+                })
 
     otros_list = sorted(otros.values(), key=lambda x: -x["total"])
     otros_total = round(sum(x["total"] for x in otros_list), 2)

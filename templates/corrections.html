@@ -85,6 +85,33 @@
   }
   .btn-delete:hover { background: #ff6b6b15; }
 
+  /* Transaction detail */
+  .tx-details { margin-bottom: 10px; }
+  .tx-details summary {
+    list-style: none; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tx-details summary::-webkit-details-marker { display: none; }
+  .tx-details summary .chevron {
+    font-size: 0.65rem; color: var(--text-muted);
+    transition: transform .2s; display: inline-block;
+  }
+  .tx-details[open] summary .chevron { transform: rotate(90deg); }
+  .tx-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 0.76rem; margin-top: 8px;
+  }
+  .tx-table th {
+    text-align: left; padding: 5px 6px;
+    color: var(--text-muted); font-weight: 600;
+    font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: .04em; border-bottom: 1px solid var(--border);
+  }
+  .tx-table td { padding: 5px 6px; border-bottom: 1px solid #2e324818; }
+  .tx-table tr:last-child td { border-bottom: none; }
+  .tx-amount { text-align: right; color: var(--red); font-variant-numeric: tabular-nums; }
+  .tx-month { color: var(--text-muted); font-size: 0.72rem; }
+
   .stat-chip {
     display: inline-block; background: var(--surface2); border: 1px solid var(--border);
     border-radius: 8px; padding: 4px 12px; font-size: 0.78rem; color: var(--text-muted);
@@ -138,10 +165,27 @@
     {% for item in otros_list %}
     <div class="otros-item">
       <div class="otros-concept">{{ item.concept }}</div>
-      <div class="otros-meta">
-        <b>{{ "%.2f"|format(item.total) }}€</b> ·
-        {{ item.count }} transacción{% if item.count != 1 %}es{% endif %}
-      </div>
+      <details class="tx-details">
+        <summary class="otros-meta">
+          <span class="chevron">▶</span>
+          <b>{{ "%.2f"|format(item.total) }}€</b> ·
+          {{ item.count }} transacción{% if item.count != 1 %}es{% endif %}
+        </summary>
+        <table class="tx-table">
+          <thead>
+            <tr><th>Fecha</th><th>Mes</th><th style="text-align:right">Importe</th></tr>
+          </thead>
+          <tbody>
+            {% for tx in item.transactions | sort(attribute='date') %}
+            <tr>
+              <td>{{ tx.date }}</td>
+              <td class="tx-month">{{ tx.month }}</td>
+              <td class="tx-amount">−{{ "%.2f"|format(tx.amount) }}€</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
       <form method="post" action="/corrections" class="otros-form">
         <input class="pattern-input" type="text" name="pattern"
                value="{{ item.pattern }}" required
