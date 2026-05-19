@@ -125,9 +125,33 @@
          color: var(--text-muted); transition: all .2s; }
   .tab.active { background: #6c63ff22; border-color: var(--accent); color: var(--accent); }
 
+  /* Insights */
+  .insights-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .insight-card {
+    border-radius: 12px; padding: 14px 16px;
+    display: flex; gap: 12px; align-items: flex-start;
+    border-left: 3px solid;
+  }
+  .insight-card.danger { background: #ff6b6b0e; border-color: var(--red); }
+  .insight-card.warn   { background: #ff9f430e; border-color: var(--orange); }
+  .insight-card.success{ background: #00d4aa0e; border-color: var(--green); }
+  .insight-icon { font-size: 1.3rem; flex-shrink: 0; margin-top: 1px; }
+  .insight-title {
+    font-size: 0.85rem; font-weight: 700; color: var(--text);
+    margin-bottom: 4px; line-height: 1.3;
+  }
+  .insight-card.danger .insight-title { color: var(--red); }
+  .insight-card.warn   .insight-title { color: var(--orange); }
+  .insight-card.success .insight-title { color: var(--green); }
+  .insight-detail { font-size: 0.78rem; color: var(--text-muted); line-height: 1.5; }
+
   @media (max-width: 900px) {
     .kpi-row { grid-template-columns: 1fr 1fr; }
-    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .grid-2, .grid-3, .insights-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 500px) {
     .kpi-row { grid-template-columns: 1fr; }
@@ -218,6 +242,21 @@
          <span style="font-weight:700;color:var(--accent);font-size:1.1rem;margin-left:6px">+200€/mes</span></div>
   </div>
 </div>
+
+<!-- Dynamic insights -->
+{% if insight_cards %}
+<div class="insights-grid mb">
+  {% for card in insight_cards %}
+  <div class="insight-card {{ card.type }}">
+    <div class="insight-icon">{{ card.icon }}</div>
+    <div class="insight-body">
+      <div class="insight-title">{{ card.title }}</div>
+      <div class="insight-detail">{{ card.detail }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 <!-- Savings goal + charts -->
 <div style="display:grid;grid-template-columns:1fr 1.6fr;gap:16px;margin-bottom:20px">

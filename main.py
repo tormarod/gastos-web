@@ -132,6 +132,9 @@ async def dashboard(request: Request, gastos_session: Annotated[str | None, Cook
     savings_accumulated = round(sum(m["balance"] for m in sorted_months if m["balance"] > 0), 2)
     savings_goal = 2400.0
 
+    from services import insights
+    insight_cards = insights.generate(sorted_months)
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "sorted_months": sorted_months,
@@ -151,6 +154,7 @@ async def dashboard(request: Request, gastos_session: Annotated[str | None, Cook
         "latest_month": latest_month,
         "has_data": total_months > 0,
         "now": datetime.now().strftime("%d/%m/%Y"),
+        "insight_cards": insight_cards,
     })
 
 
