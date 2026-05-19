@@ -67,7 +67,11 @@
   .progress-labels { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-muted); }
 
   /* Category bars */
-  .cat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .cat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+             cursor: pointer; border-radius: 8px; padding: 4px 6px; margin-left: -6px;
+             transition: background .15s; }
+  .cat-row:hover { background: #6c63ff0f; }
+  .cat-row.active { background: #6c63ff18; outline: 1px solid #6c63ff44; }
   .cat-label { font-size: 0.82rem; width: 175px; flex-shrink: 0; color: var(--text); }
   .cat-bar-wrap { flex: 1; background: #2e3248; border-radius: 4px; height: 8px; overflow: hidden; }
   .cat-bar { height: 100%; border-radius: 4px; }
@@ -312,28 +316,36 @@
 </div>
 
 <!-- Transactions -->
-<div class="card mb">
+<div class="card mb" id="txCard">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-    <h2 style="margin-bottom:0">Últimas transacciones {% if latest_month %}({{ latest_month }}){% endif %}</h2>
-    <a href="/upload" style="font-size:0.8rem;color:var(--accent);text-decoration:none;font-weight:600">+ Subir nuevo mes →</a>
+    <h2 style="margin-bottom:0" id="txTitle">Últimas transacciones {% if latest_month %}({{ latest_month }}){% endif %}</h2>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button id="txClear" onclick="clearCategoryFilter()"
+        style="display:none;padding:4px 12px;background:none;border:1px solid var(--border);
+               border-radius:20px;color:var(--text-muted);font-size:0.78rem;cursor:pointer">
+        × Ver último mes
+      </button>
+      <a href="/upload" style="font-size:0.8rem;color:var(--accent);text-decoration:none;font-weight:600">+ Subir nuevo mes →</a>
+    </div>
   </div>
 
-  {% if latest_transactions %}
-  <div style="overflow-x:auto">
-    <table>
+  <div style="overflow-x:auto" id="txTableWrap">
+    <table id="txTable">
       <thead>
         <tr>
           <th>Fecha</th>
+          <th>Mes</th>
           <th>Concepto</th>
           <th>Categoría</th>
           <th style="text-align:right">Importe</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="txBody">
         {% for tx in latest_transactions %}
         <tr>
           <td style="color:var(--text-muted);white-space:nowrap">{{ tx.date or '—' }}</td>
-          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ tx.concept }}</td>
+          <td style="color:var(--text-muted);font-size:0.78rem;white-space:nowrap">{{ latest_month }}</td>
+          <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ tx.concept }}</td>
           <td><span class="cat-pill">{{ tx.category }}</span></td>
           <td style="text-align:right;white-space:nowrap" class="{% if tx.amount > 0 %}amount-pos{% else %}amount-neg{% endif %}">
             {% if tx.amount > 0 %}+{% endif %}{{ "%.2f"|format(tx.amount) }}€
@@ -343,9 +355,6 @@
       </tbody>
     </table>
   </div>
-  {% else %}
-  <div style="color:var(--text-muted);font-size:0.85rem;padding:20px 0">No hay transacciones para mostrar.</div>
-  {% endif %}
 </div>
 
 {% endif %}{# end has_data #}
@@ -363,8 +372,12 @@ const PALETTE = [
 ];
 const CAT_ICONS = {
   'Alquiler':'🏠','Suministros':'⚡','Telefonía':'📱','Supermercado':'🛒',
-  'Delivery':'🍕','Restaurantes':'🍽️','Amazon/Online':'📦','Ocio/Cultura':'🎭',
-  'Transporte':'🚗','Salud':'💊','Ropa/Accesorios':'👗','Otros':'📎'
+  'Delivery':'🍕','Restaurantes':'🍽️','Cafés y Snacks':'☕','Amazon/Online':'📦',
+  'Ocio/Cultura':'🎭','Coche':'🚗','Transporte público':'🚇','Transporte privado':'🚕',
+  'Salud':'💊','Ropa/Accesorios':'👗','Belleza':'💄','Viajes':'✈️',
+  'Compras':'🛍️','Hogar':'🪴','Seguros':'🛡️','Gasolinera':'⛽',
+  'Efectivo':'💵','Comisiones':'🏦','Ingresos':'💰','Ajustes de cuenta':'🔄',
+  'Otros':'📎'
 };
 
 Chart.defaults.color = '#8b90a8';
@@ -439,6 +452,10 @@ new Chart(donutCtx, {
   }
 });
 
+// ── All transactions (for category drill-down) ────────────────────────────
+const allTransactions = {{ all_transactions | tojson }};
+let activeCategory = null;
+
 // ── Category bars ─────────────────────────────────────────────────────────
 const catContainer = document.getElementById('catBars');
 const sortedCats = Object.entries(avgCategories)
@@ -449,15 +466,77 @@ const maxVal = sortedCats[0]?.[1] || 1;
 sortedCats.forEach(([cat, avg], i) => {
   const pct = Math.round(avg / maxVal * 100);
   const icon = CAT_ICONS[cat] || '💶';
-  catContainer.innerHTML += `
-    <div class="cat-row">
-      <div class="cat-label">${icon} ${cat}</div>
-      <div class="cat-bar-wrap">
-        <div class="cat-bar" style="width:${pct}%;background:${PALETTE[i%PALETTE.length]}"></div>
-      </div>
-      <div class="cat-amount">${avg.toFixed(0)}€</div>
-    </div>`;
+  const row = document.createElement('div');
+  row.className = 'cat-row';
+  row.dataset.cat = cat;
+  row.innerHTML = `
+    <div class="cat-label">${icon} ${cat}</div>
+    <div class="cat-bar-wrap">
+      <div class="cat-bar" style="width:${pct}%;background:${PALETTE[i%PALETTE.length]}"></div>
+    </div>
+    <div class="cat-amount">${avg.toFixed(0)}€</div>`;
+  row.addEventListener('click', () => filterByCategory(cat));
+  catContainer.appendChild(row);
 });
+
+// ── Category drill-down ───────────────────────────────────────────────────
+function filterByCategory(cat) {
+  if (activeCategory === cat) { clearCategoryFilter(); return; }
+  activeCategory = cat;
+
+  document.querySelectorAll('.cat-row').forEach(r => {
+    r.classList.toggle('active', r.dataset.cat === cat);
+  });
+
+  const txs = allTransactions
+    .filter(tx => tx.category === cat)
+    .sort((a, b) => (b.month + (b.date||'')).localeCompare(a.month + (a.date||'')));
+
+  const total = txs.reduce((s, tx) => s + tx.amount, 0);
+  const icon = CAT_ICONS[cat] || '💶';
+
+  document.getElementById('txTitle').textContent =
+    `${icon} ${cat} — ${txs.length} transacciones · ${total < 0 ? '−' : '+'}${Math.abs(total).toFixed(2)}€`;
+  document.getElementById('txClear').style.display = 'inline-block';
+
+  const tbody = document.getElementById('txBody');
+  tbody.innerHTML = txs.map(tx => `
+    <tr>
+      <td style="color:var(--text-muted);white-space:nowrap">${tx.date || '—'}</td>
+      <td style="color:var(--text-muted);font-size:0.78rem;white-space:nowrap">${tx.month}</td>
+      <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tx.concept}</td>
+      <td><span class="cat-pill">${tx.category}</span></td>
+      <td style="text-align:right;white-space:nowrap;${tx.amount > 0 ? 'color:var(--green);font-weight:600' : 'color:var(--red)'}">
+        ${tx.amount > 0 ? '+' : ''}${tx.amount.toFixed(2)}€
+      </td>
+    </tr>`).join('');
+
+  document.getElementById('txCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function clearCategoryFilter() {
+  activeCategory = null;
+  document.querySelectorAll('.cat-row').forEach(r => r.classList.remove('active'));
+  document.getElementById('txClear').style.display = 'none';
+  document.getElementById('txTitle').textContent =
+    'Últimas transacciones ({{ latest_month }})';
+
+  const defaultTxs = allTransactions
+    .filter(tx => tx.month === '{{ latest_month }}')
+    .slice(0, 50);
+
+  const tbody = document.getElementById('txBody');
+  tbody.innerHTML = defaultTxs.map(tx => `
+    <tr>
+      <td style="color:var(--text-muted);white-space:nowrap">${tx.date || '—'}</td>
+      <td style="color:var(--text-muted);font-size:0.78rem;white-space:nowrap">${tx.month}</td>
+      <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tx.concept}</td>
+      <td><span class="cat-pill">${tx.category}</span></td>
+      <td style="text-align:right;white-space:nowrap;${tx.amount > 0 ? 'color:var(--green);font-weight:600' : 'color:var(--red)'}">
+        ${tx.amount > 0 ? '+' : ''}${tx.amount.toFixed(2)}€
+      </td>
+    </tr>`).join('');
+}
 {% endif %}
 </script>
 </body>

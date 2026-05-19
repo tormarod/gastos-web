@@ -128,6 +128,13 @@ async def dashboard(request: Request, gastos_session: Annotated[str | None, Cook
     latest_transactions = sorted_months[-1]["transactions"] if sorted_months else []
     latest_month = sorted_months[-1]["month"] if sorted_months else None
 
+    # All transactions across all months for client-side category filtering
+    all_transactions = [
+        {**tx, "month": m["month"]}
+        for m in sorted_months
+        for tx in m["transactions"]
+    ]
+
     # Savings goal: how much has been saved (positive balance months)
     savings_accumulated = round(sum(m["balance"] for m in sorted_months if m["balance"] > 0), 2)
     savings_goal = 2400.0
@@ -152,6 +159,7 @@ async def dashboard(request: Request, gastos_session: Annotated[str | None, Cook
         "savings_pct": round(min(savings_accumulated / savings_goal * 100, 100), 1),
         "latest_transactions": latest_transactions[:50],
         "latest_month": latest_month,
+        "all_transactions": all_transactions,
         "has_data": total_months > 0,
         "now": datetime.now().strftime("%d/%m/%Y"),
         "insight_cards": insight_cards,
