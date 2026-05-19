@@ -51,7 +51,7 @@ RULES: list[tuple[str, list[str]]] = [
     # Delivery
     ("Delivery", [
         "GLOVO", "JUSTEAT", "JUST EAT", "UBER EATS", "UBEREATS",
-        "UBER*EATS", "UBER *EATS",
+        "UBER*EATS", "UBER *EATS", "*EATS",
         "DELIVEROO", "DOMINOS", "DOMINO'S", "TELEPIZZA", "PIZZA HUT",
     ]),
 
