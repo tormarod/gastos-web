@@ -233,7 +233,7 @@ ALL_CATEGORIES = [
     "Delivery", "Restaurantes", "Amazon/Online", "Ocio/Cultura",
     "Transporte", "Salud", "Ropa/Accesorios", "Belleza",
     "Viajes", "Compras", "Hogar", "Seguros", "Gasolinera",
-    "Efectivo", "Comisiones", "Ingresos",
+    "Efectivo", "Comisiones", "Ingresos", "Ajustes de cuenta",
 ]
 
 
@@ -272,6 +272,17 @@ async def corrections_page(request: Request, gastos_session: Annotated[str | Non
     otros_list = sorted(otros.values(), key=lambda x: -x["total"])
     otros_total = round(sum(x["total"] for x in otros_list), 2)
 
+    tx_overrides = s3_store.load_transaction_overrides()
+    override_index = {
+        (o["date"], o["concept"], o["amount"]): o["category"]
+        for o in tx_overrides
+    }
+    for item in otros_list:
+        for tx in item["transactions"]:
+            tx["override_category"] = override_index.get(
+                (tx["date"], item["concept"], tx["amount"])
+            )
+
     return templates.TemplateResponse("corrections.html", {
         "request": request,
         "otros_list": otros_list,
@@ -298,6 +309,26 @@ async def save_correction(
     custom_rules = [r for r in custom_rules if r["pattern"].upper() != pattern.upper()]
     custom_rules.append({"pattern": pattern.upper(), "category": category})
     s3_store.save_custom_rules(custom_rules)
+    s3_store.recategorize_all(custom_rules)
+
+    return RedirectResponse("/corrections?saved=1", status_code=303)
+
+
+@app.post("/corrections/override")
+async def save_tx_override(
+    request: Request,
+    gastos_session: Annotated[str | None, Cookie()] = None,
+    date: str = Form(...),
+    concept: str = Form(...),
+    amount: float = Form(...),
+    category: str = Form(...),
+):
+    _require_auth(gastos_session)
+
+    from services import s3_store
+
+    s3_store.save_transaction_override(date, concept, amount, category)
+    custom_rules = s3_store.load_custom_rules()
     s3_store.recategorize_all(custom_rules)
 
     return RedirectResponse("/corrections?saved=1", status_code=303)

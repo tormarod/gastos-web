@@ -73,7 +73,7 @@ Required: `SECRET_KEY`, `APP_PASSWORD`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_
 
 Alquiler · Suministros · Telefonía · Supermercado · Delivery · Restaurantes ·
 Amazon/Online · Ocio/Cultura · Transporte · Salud · Ropa/Accesorios · Belleza ·
-Viajes · Compras · Hogar · Seguros · Gasolinera · Efectivo · Comisiones · Ingresos · Otros
+Viajes · Compras · Hogar · Seguros · Gasolinera · Efectivo · Comisiones · Ingresos · Ajustes de cuenta · Otros
 
 ## What to avoid
 
@@ -82,3 +82,4 @@ Viajes · Compras · Hogar · Seguros · Gasolinera · Efectivo · Comisiones ·
 - Do not add a frontend framework — plain Jinja2 + Chart.js is the right fit.
 - Do not commit `.env`. It is in `.gitignore`. Use `.env.example` for documentation.
 - Do not push unless asked to.
+- Do not edit files without asking first. Always ask before making the changes. First design, then ask to edit.

@@ -87,37 +87,75 @@ def delete_month(month_label: str) -> None:
 
 # ── Custom merchant rules ────────────────────────────────────────────────────
 
-def load_custom_rules() -> list[dict[str, str]]:
-    """Load user-defined merchant → category rules. Returns [] if none saved."""
+def _load_rules_file() -> dict:
     try:
         resp = _client().get_object(Bucket=_bucket(), Key=CUSTOM_RULES_KEY)
-        return json.loads(resp["Body"].read()).get("rules", [])
+        return json.loads(resp["Body"].read())
     except ClientError as e:
         if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
-            return []
+            return {"rules": [], "transaction_overrides": []}
         raise
 
 
-def save_custom_rules(rules: list[dict[str, str]]) -> None:
+def _save_rules_file(payload: dict) -> None:
     _client().put_object(
         Bucket=_bucket(),
         Key=CUSTOM_RULES_KEY,
-        Body=json.dumps({"rules": rules}, ensure_ascii=False).encode(),
+        Body=json.dumps(payload, ensure_ascii=False).encode(),
         ContentType="application/json",
     )
+
+
+def load_custom_rules() -> list[dict[str, str]]:
+    """Load user-defined merchant → category rules. Returns [] if none saved."""
+    return _load_rules_file().get("rules", [])
+
+
+def save_custom_rules(rules: list[dict[str, str]]) -> None:
+    payload = _load_rules_file()
+    payload["rules"] = rules
+    _save_rules_file(payload)
+
+
+def load_transaction_overrides() -> list[dict]:
+    """Load per-transaction category overrides. Returns [] if none saved."""
+    return _load_rules_file().get("transaction_overrides", [])
+
+
+def save_transaction_override(date: str, concept: str, amount: float, category: str) -> None:
+    """Upsert a single transaction override keyed by (date, concept, amount)."""
+    payload = _load_rules_file()
+    overrides: list[dict] = payload.get("transaction_overrides", [])
+    overrides = [
+        o for o in overrides
+        if not (o["date"] == date and o["concept"] == concept and o["amount"] == amount)
+    ]
+    overrides.append({"date": date, "concept": concept, "amount": amount, "category": category})
+    payload["transaction_overrides"] = overrides
+    _save_rules_file(payload)
 
 
 def recategorize_all(custom_rules: list[dict[str, str]]) -> None:
     """
     Re-run categorization on every stored transaction using the current rules
     and rebuild each month's summary totals. Called after any rule change.
+    Transaction-level overrides are applied last and take priority over pattern rules.
     """
     from services.categorizer import categorize
+
+    overrides = load_transaction_overrides()
+    override_index = {
+        (o["date"], o["concept"], o["amount"]): o["category"]
+        for o in overrides
+    }
 
     data = load_data()
     for month_data in data["months"].values():
         for tx in month_data["transactions"]:
             tx["category"] = categorize(tx["concept"], custom_rules)
+            key = (tx.get("date", ""), tx["concept"], abs(tx["amount"]))
+            if key in override_index:
+                tx["category"] = override_index[key]
 
         summary: dict[str, float] = {}
         for tx in month_data["transactions"]:

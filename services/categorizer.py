@@ -197,6 +197,12 @@ RULES: list[tuple[str, list[str]]] = [
         "COMISION", "COMISIÓN", "MANTENIMIENTO CUENTA", "CUOTA TARJETA",
         "INTERESES DEUDORES", "GASTOS ADMINISTRACION",
     ]),
+
+    # Internal account adjustments / shared-expense reimbursements
+    ("Ajustes de cuenta", [
+        "AJUSTE", "LIQUIDACION ", "LIQUIDACIÓN ", "REEMBOLSO",
+        "COMPENSACION", "COMPENSACIÓN", "CUADRE",
+    ]),
 ]
 
 _LOWER_RULES = [(cat, [kw.lower() for kw in kws]) for cat, kws in RULES]

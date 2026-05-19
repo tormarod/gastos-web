@@ -107,10 +107,21 @@
     font-size: 0.7rem; text-transform: uppercase;
     letter-spacing: .04em; border-bottom: 1px solid var(--border);
   }
-  .tx-table td { padding: 5px 6px; border-bottom: 1px solid #2e324818; }
+  .tx-table td { padding: 5px 6px; border-bottom: 1px solid #2e324818; vertical-align: middle; }
   .tx-table tr:last-child td { border-bottom: none; }
   .tx-amount { text-align: right; color: var(--red); font-variant-numeric: tabular-nums; }
   .tx-month { color: var(--text-muted); font-size: 0.72rem; }
+  .tx-override-form { display: flex; gap: 6px; align-items: center; }
+  .tx-override-form select { padding: 4px 8px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 0.75rem; outline: none; cursor: pointer; }
+  .tx-override-form select:focus { border-color: var(--accent); }
+  .btn-assign { padding: 4px 10px; background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; font-size: 0.72rem;
+    font-weight: 600; cursor: pointer; white-space: nowrap; transition: border-color .2s; }
+  .btn-assign:hover { border-color: var(--accent); color: var(--accent); }
+  .tx-overridden { background: #6c63ff0a; }
+  .override-badge { display: inline-block; font-size: 0.68rem; color: var(--accent);
+    font-weight: 700; margin-left: 4px; }
 
   .stat-chip {
     display: inline-block; background: var(--surface2); border: 1px solid var(--border);
@@ -173,14 +184,32 @@
         </summary>
         <table class="tx-table">
           <thead>
-            <tr><th>Fecha</th><th>Mes</th><th style="text-align:right">Importe</th></tr>
+            <tr><th>Fecha</th><th>Mes</th><th style="text-align:right">Importe</th><th>Asignar</th></tr>
           </thead>
           <tbody>
             {% for tx in item.transactions | sort(attribute='date') %}
-            <tr>
+            <tr class="{{ 'tx-overridden' if tx.override_category else '' }}">
               <td>{{ tx.date }}</td>
               <td class="tx-month">{{ tx.month }}</td>
-              <td class="tx-amount">−{{ "%.2f"|format(tx.amount) }}€</td>
+              <td class="tx-amount">
+                −{{ "%.2f"|format(tx.amount) }}€
+                {% if tx.override_category %}
+                <span class="override-badge">→ {{ tx.override_category }}</span>
+                {% endif %}
+              </td>
+              <td>
+                <form method="post" action="/corrections/override" class="tx-override-form">
+                  <input type="hidden" name="date" value="{{ tx.date }}">
+                  <input type="hidden" name="concept" value="{{ item.concept }}">
+                  <input type="hidden" name="amount" value="{{ tx.amount }}">
+                  <select name="category">
+                    {% for cat in categories %}
+                    <option value="{{ cat }}" {{ 'selected' if cat == tx.override_category else '' }}>{{ cat }}</option>
+                    {% endfor %}
+                  </select>
+                  <button class="btn-assign" type="submit">Asignar</button>
+                </form>
+              </td>
             </tr>
             {% endfor %}
           </tbody>
