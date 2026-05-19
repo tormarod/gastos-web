@@ -130,8 +130,37 @@ RULES: list[tuple[str, list[str]]] = [
         "PEDRO DEL HIERRO", "BOSS ", "TOMMY ", "LEVI'S", "LEVIS ",
         "DECATHLON", "NIKE ", "ADIDAS ", "PUMA ", "REEBOK", "NEW BALANCE",
         "FOOT LOCKER", "JD SPORTS",
-        "SEPHORA", "DOUGLAS", "DRUNI ", "PRIMOR ", "NOTINO",
         "EL CORTE INGLES MODA",
+    ]),
+
+    # Beauty & personal care (moved out of Ropa)
+    ("Belleza", [
+        "SEPHORA", "DOUGLAS", "DRUNI ", "PRIMOR ", "NOTINO",
+        "KIKO ", "RITUALS", "LUSH ", "THE BODY SHOP", "MAQUILLAJE",
+        "PELUQUERIA", "PELUQUERÍA", "BARBERIA", "BARBERÍA",
+        "SALON DE BELLEZA", "SALÓN DE BELLEZA", "CENTRO DE ESTETICA",
+        "ESTETICA", "ESTÉTICA", "MANICURA", "DEPILACION", "DEPILACIÓN",
+        "CENTROS UNIQUE", "ARENAL PERFUMERIAS", "PERFUMERIA", "PERFUMERÍA",
+    ]),
+
+    # Travel & accommodation (separate from transport)
+    ("Viajes", [
+        "BOOKING.COM", "BOOKING ", "AIRBNB", "HOTELS.COM", "EXPEDIA",
+        "TRIVAGO", "HOSTELWORLD", "LOGITRAVEL", "TRAVELGENIO", "DESTINIA",
+        "NH HOTEL", "MELIA ", "BARCELO ", "VINCCI", "IBIS ", "NOVOTEL",
+        "MARRIOTT", "HILTON", "HYATT", "AC HOTEL",
+        "CIVITATIS", "GETYOURGUIDE", "VIATOR", "AGENCIA DE VIAJES",
+        "ALOJAMIENTO", "APARTAMENTO TURISTICO",
+    ]),
+
+    # General purchases — physical stores not covered by other categories
+    ("Compras", [
+        "EL CORTE INGLES", "FNAC ", "WORTEN", "MEDIAMARKT", "PCCOMPONENTES",
+        "PHONE HOUSE", "POWERPLANET",
+        "PAPELERIA", "PAPELERÍA", "LIBRERIA", "LIBRERÍA", "CASA DEL LIBRO",
+        "JUGUETERIA", "JUGUETERÍA", "JUGUETES",
+        "BAZAR", "TODO A ", "NORMAL ", "ACTION ",
+        "TIENDA ", "COMERCIO ",
     ]),
 
     # Home & hardware

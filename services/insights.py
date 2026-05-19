@@ -19,7 +19,8 @@ CAT_ICONS: dict[str, str] = {
     "Alquiler": "🏠", "Suministros": "⚡", "Telefonía": "📱",
     "Supermercado": "🛒", "Delivery": "🍕", "Restaurantes": "🍽️",
     "Amazon/Online": "📦", "Ocio/Cultura": "🎭", "Transporte": "🚗",
-    "Salud": "💊", "Ropa/Accesorios": "👗", "Hogar": "🪴",
+    "Salud": "💊", "Ropa/Accesorios": "👗", "Belleza": "💄",
+    "Viajes": "✈️", "Compras": "🛍️", "Hogar": "🪴",
     "Seguros": "🛡️", "Gasolinera": "⛽", "Efectivo": "💵",
     "Comisiones": "🏦", "Otros": "📎",
 }
