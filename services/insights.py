@@ -19,7 +19,9 @@ CAT_ICONS: dict[str, str] = {
     "Alquiler": "🏠", "Suministros": "⚡", "Telefonía": "📱",
     "Supermercado": "🛒", "Delivery": "🍕", "Restaurantes": "🍽️",
     "Amazon/Online": "📦", "Ocio/Cultura": "🎭", "Transporte": "🚗",
-    "Salud": "💊", "Ropa/Accesorios": "👗", "Otros": "📎",
+    "Salud": "💊", "Ropa/Accesorios": "👗", "Hogar": "🪴",
+    "Seguros": "🛡️", "Gasolinera": "⛽", "Efectivo": "💵",
+    "Comisiones": "🏦", "Otros": "📎",
 }
 
 Insight = dict[str, str]

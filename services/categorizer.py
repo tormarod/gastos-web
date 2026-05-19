@@ -1,40 +1,224 @@
 """
-Keyword-based transaction categorizer for BBVA statements.
-Matches Spanish bank concept strings to spending categories.
+Transaction categorizer for BBVA statements.
+
+Built-in keyword rules cover common Spanish merchants.
+Custom rules (saved to S3) are applied first and always win.
 """
 
+from __future__ import annotations
+
+import re
+
 RULES: list[tuple[str, list[str]]] = [
-    ("Alquiler",        ["ALQUILER", "ARRENDAMIENTO"]),
-    ("Suministros",     ["OCTOPUS", "NATURGY", "IBERDROLA", "ENDESA", "GAS NATURAL", "UNION FENOSA"]),
-    ("Telefonía",       ["DIGI", "MOVISTAR", "VODAFONE", "ORANGE", "YOIGO", "MASMOVIL"]),
-    ("Supermercado",    ["DIA ", "SUPERMERCADOS DIA", "MERCADONA", "ALCAMPO", "LIDL", "CARREFOUR",
-                         "AHORRA MAS", "ALDI", "EROSKI", "CONSUM", "EL CORTE INGLES ALIMENT"]),
-    ("Delivery",        ["GLOVO", "JUSTEAT", "JUST EAT", "UBER EATS", "UBEREATS", "DELIVEROO",
-                         "DOMINOS", "DOMINO'S", "TELEPIZZA"]),
-    ("Restaurantes",    ["RESTAURANTE", "CAFETERIA", "CAFETERÍA", "BAR ", "BIKI BAT", "LA CUADRA",
-                         "MCDONALDS", "MC DONALDS", "BURGER KING", "KFC", "FIVE GUYS",
-                         "VIPS", "TGIFRIDAYS", "FOSTER'S", "FOSTERSS", "CERVECERIA",
-                         "CERVECERÍA", "TABERNA", "MARISQUERIA", "MARISQUERÍA"]),
-    ("Amazon/Online",   ["AMAZON", "AMZN", "ALIEXPRESS", "SHEIN", "ZARA ONLINE", "MANGO ONLINE",
-                         "EL CORTE INGLES", "PCCOMPONENTES", "MEDIAMARKT ONLINE"]),
-    ("Ocio/Cultura",    ["FEVER", "EVENTBRITE", "TICKETMASTER", "CINESA", "VUE CINEMAS", "YELMO",
-                         "STEAM", "PLAYSTATION", "SPOTIFY", "NETFLIX", "HBO", "DISNEY",
-                         "PRIME VIDEO", "APPLE.COM/BILL"]),
-    ("Transporte",      ["METRO ", "RENFE", "EMT ", "CABIFY", "UBER", "BOLT", "FREE NOW",
-                         "BLABLACAR", "AENA", "VUELING", "IBERIA", "RYANAIR", "EASYJET"]),
-    ("Salud",           ["FARMACIA", "CLINICA", "CLÍNICA", "DENTISTA", "OPTICA", "ÓPTICA",
-                         "SEGURO SALUD", "SANITAS", "ADESLAS", "ASISA"]),
-    ("Ropa/Accesorios", ["ZARA", "H&M", "HM ", "MANGO", "PULL&BEAR", "BERSHKA", "STRADIVARIUS",
-                         "MASSIMO DUTTI", "PRIMARK", "DECATHLON", "NIKE", "ADIDAS"]),
-    ("Ingresos",        ["NOMINA", "NÓMINA", "TRANSFERENCIA RECIBIDA", "BIZUM RECIBIDO", "INGRESO"]),
+    # Ingresos first — prevents salary transfers being tagged as expenses
+    ("Ingresos", [
+        "NOMINA", "NÓMINA", "TRANSFERENCIA RECIBIDA", "BIZUM RECIBIDO",
+        "INGRESO EN EFECTIVO", "DEVOLUCION ", "DEVOLUCIÓN", "REINTEGRO",
+        "ABONO ", "LIQUIDACION INTERESES", "INTERESES ACREEDORES",
+    ]),
+
+    # Fixed
+    ("Alquiler", [
+        "ALQUILER", "ARRENDAMIENTO", "COMUNIDAD DE PROPIETARIOS",
+    ]),
+    ("Suministros", [
+        "OCTOPUS", "NATURGY", "IBERDROLA", "ENDESA", "GAS NATURAL",
+        "UNION FENOSA", "FENOSA", "ACCIONA ENERGIA", "HOLALUZ", "AUDAX",
+        "FACTOR ENERGIA", "PODO ", "EDP ", "REPSOL LUZ", "CEPSA LUZ",
+        "CANAL DE ISABEL", "AGUAS DE", "AQUALIA", "HIDRAQUA", "EMASAGRA",
+        "EMASA", "AIGUES DE", "EMPRESA MUNICIPAL AGUAS",
+    ]),
+    ("Telefonía", [
+        "DIGI", "MOVISTAR", "VODAFONE", "ORANGE", "YOIGO", "MASMOVIL",
+        "PEPEPHONE", "SIMYO", "AMENA", "JAZZTEL", "LOWI", "FINETWORK",
+        "EUSKALTEL", "R CABLE", "TELECABLE",
+    ]),
+
+    # Supermarkets
+    ("Supermercado", [
+        "DIA ", "SUPERMERCADOS DIA", "TIENDAS DIA", "DIA,S.A", "GRUPO DIA",
+        "MERCADONA", "ALCAMPO", "LIDL", "CARREFOUR", "CARREFOUR EXPRESS",
+        "AHORRA MAS", "AHORRAMAX", "ALDI", "EROSKI", "CONSUM",
+        "BM SUPERMERCADOS", "SUPERCOR", "EL ARBOL", "SUMA SUPERMERCADOS",
+        "COVIRAN", "COVIRÁN", "FROIZ", "GADIS", "SPAR ", "MASYMAS",
+        "SIMPLY MARKET", "DIA MAXI", "HIPERCOR", "CONDIS", "VERITAS",
+        "ECOVERITAS", "EL CORTE INGLES ALIMENT", "MAKRO", "COSTCO",
+        "SUPERMERCADO", "FRUTERIA", "FRUTERÍA", "VERDULERIA", "VERDULERÍA",
+        "CARNICERIA", "CARNICERÍA", "PESCADERIA", "PESCADERÍA", "PANADERIA",
+        "PANADERÍA", "COLMADO", "ULTRAMARINOS",
+    ]),
+
+    # Delivery
+    ("Delivery", [
+        "GLOVO", "JUSTEAT", "JUST EAT", "UBER EATS", "UBEREATS",
+        "DELIVEROO", "DOMINOS", "DOMINO'S", "TELEPIZZA", "PIZZA HUT",
+    ]),
+
+    # Restaurants & cafes
+    ("Restaurantes", [
+        "RESTAURANTE", "CAFETERIA", "CAFETERÍA", "HELADERIA", "HELADERÍA",
+        "CERVECERIA", "CERVECERÍA", "TABERNA", "MARISQUERIA", "MARISQUERÍA",
+        "ASADOR", "BRASERIA", "BRASERÍA", "PIZZERIA", "PIZZERÍA",
+        "HAMBURGUESERIA", "HAMBURGUESERÍA", "BOCATERIA", "BOCATERÍA",
+        "MCDONALDS", "MC DONALDS", "MCDONALD", "BURGER KING", "BURGUER KING",
+        "KFC ", "FIVE GUYS", "TACO BELL", "SUBWAY ", "PANS & COMPANY",
+        "100 MONTADITOS", "TGB ", "THE GOOD BURGER", "VIPS ", "FOSTER'S",
+        "FOSTERS HOLLYWOOD", "TGIFRIDAYS", "TGI FRIDAY", "POPEYES",
+        "FRESCO CO", "HONEST GREENS", "LATERAL ", "GINOS ", "WAGAMAMA",
+        "STARBUCKS", "COSTA COFFEE", "MCCAFE", "DUNKIN", "CAFES ",
+        "BIKI BAT", "LA CUADRA",
+        "BAR ", "PUB ", "TASCA ", "MESÓN", "MESON ", "BODEGA ",
+        "SIDRERIA", "SIDRERRÍA", "CHURRERIA", "CHURRERÍAS",
+    ]),
+
+    # Online shopping
+    ("Amazon/Online", [
+        "AMAZON", "AMZN",
+        "ALIEXPRESS", "ALI EXPRESS",
+        "SHEIN", "ASOS ", "ZALANDO",
+        "EL CORTE INGLES", "FNAC ", "PCCOMPONENTES", "MEDIAMARKT",
+        "PHONE HOUSE", "WORTEN", "POWERPLANET",
+        "EBAY", "WALLAPOP", "VINTED",
+        "PAYPAL",
+        "APPLE.COM", "GOOGLE PLAY", "MICROSOFT STORE", "MICROSOFT 365",
+    ]),
+
+    # Entertainment & subscriptions
+    ("Ocio/Cultura", [
+        "NETFLIX", "SPOTIFY", "HBO ", "DISNEY", "AMAZON PRIME", "APPLE TV",
+        "YOUTUBE", "TWITCH", "DAZN ", "FILMIN", "MOVISTAR PLUS", "SKYSHOWTIME",
+        "STEAM ", "PLAYSTATION", "XBOX ", "NINTENDO", "EPIC GAMES",
+        "TICKETMASTER", "FEVER ", "EVENTBRITE", "TAQUILLA",
+        "CINESA", "VUE CINEMAS", "YELMO", "KINEPOLIS", "CINES ",
+        "TEATRO ", "MUSEO ", "FNAC TICKET", "FNAC ESPECTACULOS",
+        "APPLE.COM/BILL", "ICLOUD",
+        "ESCAPE ROOM", "BOWLING", "KARTING", "LASER ", "PAINTBALL",
+        "PARQUE ", "ZOO ", "AQUARIUM",
+    ]),
+
+    # Transport
+    ("Transporte", [
+        "METRO ", "METRO DE MADRID", "EMT ", "MUNICIPALES BUS",
+        "RENFE", "CERCANIAS", "CERCANÍAS", "ALVIA ", "AVE ", "AVANT ",
+        "CABIFY", "UBER ", "BOLT ", "FREE NOW", "FREENOW", "MYTAXI",
+        "BLABLACAR", "ALSA ", "AVANZA ", "FLIXBUS",
+        "AENA", "VUELING", "IBERIA ", "RYANAIR", "EASYJET", "WIZZ AIR",
+        "NORWEGIAN", "TRANSAVIA", "VOLOTEA",
+        "BICIMAD", "DONKEY REPUBLIC",
+        "PARKING ", "SABA ", "EMPARK", "INDIGO PARK",
+        "AUTOPISTA", "PEAJE ", "ITINERE", "CINTRA", "ABERTIS",
+    ]),
+
+    # Health
+    ("Salud", [
+        "FARMACIA", "PARAFARMACIA",
+        "CLINICA", "CLÍNICA", "HOSPITAL", "CENTRO MEDICO", "CENTRO MÉDICO",
+        "DENTISTA", "DENTAL ", "CLINICA DENTAL",
+        "OPTICA", "ÓPTICA", "MULTIÓPTICAS", "GENERAL OPTICA", "VISILAB",
+        "SANITAS", "ADESLAS", "ASISA ", "MAPFRE SALUD", "CIGNA ",
+        "QUIRONSALUD", "HM HOSPITALES", "RUBER ",
+        "FISIO", "FISIOTERAPIA", "PSICOLOG",
+        "LABORATORIO", "RADIOLOGIA", "ANALISIS CLINICO",
+        "GINECOLOG", "PEDIATR", "DERMATOLOG",
+    ]),
+
+    # Clothing
+    ("Ropa/Accesorios", [
+        "ZARA ", "H&M", "HM ", "MANGO ", "PULL&BEAR", "PULL & BEAR",
+        "BERSHKA", "STRADIVARIUS", "MASSIMO DUTTI", "OYSHO ",
+        "PRIMARK", "LEFTIES", "UNIQLO", "SPRINGFIELD", "CORTEFIEL",
+        "PEDRO DEL HIERRO", "BOSS ", "TOMMY ", "LEVI'S", "LEVIS ",
+        "DECATHLON", "NIKE ", "ADIDAS ", "PUMA ", "REEBOK", "NEW BALANCE",
+        "FOOT LOCKER", "JD SPORTS",
+        "SEPHORA", "DOUGLAS", "DRUNI ", "PRIMOR ", "NOTINO",
+        "EL CORTE INGLES MODA",
+    ]),
+
+    # Home & hardware
+    ("Hogar", [
+        "IKEA", "LEROY MERLIN", "BRICOMART", "BAUHAUS", "BRICOR",
+        "CONFORAMA", "MAISONS DU MONDE", "ZARA HOME",
+        "FERRETERIA", "FERRETERÍA", "FERRETERIAS",
+        "FLORISTERIA", "FLORISTERÍA", "VIVERO",
+    ]),
+
+    # Insurance
+    ("Seguros", [
+        "MAPFRE", "GENERALI", "ALLIANZ", "AXA ", "MUTUA MADRILENA",
+        "MUTUA MADRILEÑA", "ZURICH", "LINEA DIRECTA", "VERTI ",
+        "FIATC ", "SANTALUCIA", "SANTA LUCIA", "PELAYO ",
+        "SEGURO ", "PRIMA SEGURO",
+    ]),
+
+    # Fuel
+    ("Gasolinera", [
+        "REPSOL", "BP ", "CEPSA ", "SHELL ", "GALP ", "CAMPSA",
+        "PLENOIL", "BALLENOIL", "GASOLINERA", "ESTACION DE SERVICIO",
+        "GASOLINA", "CARBURANTE",
+    ]),
+
+    # Cash withdrawals
+    ("Efectivo", [
+        "CAJERO", "REINTEGRO CAJERO", "DISPOSICION EFECTIVO", "ATM ",
+        "EFECTIVO ",
+    ]),
+
+    # Bank fees
+    ("Comisiones", [
+        "COMISION", "COMISIÓN", "MANTENIMIENTO CUENTA", "CUOTA TARJETA",
+        "INTERESES DEUDORES", "GASTOS ADMINISTRACION",
+    ]),
 ]
 
 _LOWER_RULES = [(cat, [kw.lower() for kw in kws]) for cat, kws in RULES]
 
+# BBVA concept prefixes to strip when suggesting a pattern to the user
+_BBVA_PREFIXES = [
+    "COMPRA EN ", "COMPRA INTERNET EN ", "COMPRA ",
+    "PAGO EN ", "PAGO A ", "PAGO CON TARJETA EN ", "PAGO ",
+    "RECIBO ", "CARGO A ", "CARGO ", "DOMICILIACION ",
+    "TPVIRTUAL ", "BIZUM A ", "BIZUM DE ",
+    "TRANSFERENCIA A ", "TRANSFERENCIA DE ",
+]
 
-def categorize(concept: str) -> str:
+
+def categorize(concept: str, custom_rules: list[dict] | None = None) -> str:
+    """
+    Categorize a BBVA transaction concept string.
+    custom_rules are applied first so user corrections always win.
+    """
     c = concept.lower()
+
+    if custom_rules:
+        for rule in custom_rules:
+            if rule["pattern"].lower() in c:
+                return rule["category"]
+
     for cat, keywords in _LOWER_RULES:
         if any(kw in c for kw in keywords):
             return cat
+
     return "Otros"
+
+
+def suggest_pattern(concept: str) -> str:
+    """
+    Strip common BBVA prefixes and trailing noise to suggest a clean
+    merchant pattern for the user to confirm before saving.
+    """
+    upper = concept.upper().strip()
+
+    for prefix in _BBVA_PREFIXES:
+        if upper.startswith(prefix):
+            upper = upper[len(prefix):]
+            break
+
+    # Remove trailing date patterns like "15/05/26" or "15-05-2026"
+    upper = re.sub(r"\s+\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}$", "", upper).strip()
+
+    # Remove trailing city/location noise after a dash or slash
+    for sep in [" - ", " / ", "  "]:
+        if sep in upper:
+            upper = upper.split(sep)[0].strip()
+
+    return upper

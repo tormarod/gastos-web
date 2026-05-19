@@ -197,7 +197,8 @@ async def upload_statement(
 
     try:
         from services import parser, s3_store
-        month_data = parser.parse_bbva_xlsx(content, month)
+        custom_rules = s3_store.load_custom_rules()
+        month_data = parser.parse_bbva_xlsx(content, month, custom_rules)
         s3_store.upload_statement(month, content)
         s3_store.upsert_month(month_data)
     except Exception as exc:
@@ -223,6 +224,94 @@ async def delete_month(
     from services import s3_store
     s3_store.delete_month(month)
     return RedirectResponse("/upload", status_code=303)
+
+
+# ── Corrections ──────────────────────────────────────────────────────────────
+
+ALL_CATEGORIES = [
+    "Alquiler", "Suministros", "Telefonía", "Supermercado",
+    "Delivery", "Restaurantes", "Amazon/Online", "Ocio/Cultura",
+    "Transporte", "Salud", "Ropa/Accesorios", "Hogar",
+    "Seguros", "Gasolinera", "Efectivo", "Comisiones", "Ingresos",
+]
+
+
+@app.get("/corrections", response_class=HTMLResponse)
+async def corrections_page(request: Request, gastos_session: Annotated[str | None, Cookie()] = None):
+    _require_auth(gastos_session)
+
+    from services import s3_store
+    from services.categorizer import suggest_pattern
+
+    data = s3_store.load_data()
+    custom_rules = s3_store.load_custom_rules()
+
+    # Collect unique "Otros" concepts across all months, sorted by impact
+    otros: dict[str, dict] = {}
+    for month_data in data["months"].values():
+        for tx in month_data["transactions"]:
+            if tx["category"] == "Otros" and tx["amount"] < 0:
+                key = tx["concept"]
+                if key not in otros:
+                    otros[key] = {
+                        "concept": key,
+                        "pattern": suggest_pattern(key),
+                        "count": 0,
+                        "total": 0.0,
+                    }
+                otros[key]["count"] += 1
+                otros[key]["total"] = round(otros[key]["total"] + abs(tx["amount"]), 2)
+
+    otros_list = sorted(otros.values(), key=lambda x: -x["total"])
+    otros_total = round(sum(x["total"] for x in otros_list), 2)
+
+    return templates.TemplateResponse("corrections.html", {
+        "request": request,
+        "otros_list": otros_list,
+        "otros_total": otros_total,
+        "custom_rules": custom_rules,
+        "categories": ALL_CATEGORIES,
+        "saved": request.query_params.get("saved"),
+    })
+
+
+@app.post("/corrections")
+async def save_correction(
+    request: Request,
+    gastos_session: Annotated[str | None, Cookie()] = None,
+    pattern: str = Form(...),
+    category: str = Form(...),
+):
+    _require_auth(gastos_session)
+
+    from services import s3_store
+
+    custom_rules = s3_store.load_custom_rules()
+    # Remove any existing rule for this pattern and add the new one
+    custom_rules = [r for r in custom_rules if r["pattern"].upper() != pattern.upper()]
+    custom_rules.append({"pattern": pattern.upper(), "category": category})
+    s3_store.save_custom_rules(custom_rules)
+    s3_store.recategorize_all(custom_rules)
+
+    return RedirectResponse("/corrections?saved=1", status_code=303)
+
+
+@app.post("/corrections/delete")
+async def delete_correction(
+    request: Request,
+    gastos_session: Annotated[str | None, Cookie()] = None,
+    pattern: str = Form(...),
+):
+    _require_auth(gastos_session)
+
+    from services import s3_store
+
+    custom_rules = s3_store.load_custom_rules()
+    custom_rules = [r for r in custom_rules if r["pattern"].upper() != pattern.upper()]
+    s3_store.save_custom_rules(custom_rules)
+    s3_store.recategorize_all(custom_rules)
+
+    return RedirectResponse("/corrections", status_code=303)
 
 
 # ── API (JSON) ───────────────────────────────────────────────────────────────

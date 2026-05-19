@@ -23,7 +23,11 @@ from services.categorizer import categorize
 Transaction = dict[str, Any]
 
 
-def parse_bbva_xlsx(file_bytes: bytes, month_label: str) -> dict[str, Any]:
+def parse_bbva_xlsx(
+    file_bytes: bytes,
+    month_label: str,
+    custom_rules: list[dict] | None = None,
+) -> dict[str, Any]:
     """
     Parse a BBVA XLSX export and return a structured month summary.
 
@@ -100,7 +104,7 @@ def parse_bbva_xlsx(file_bytes: bytes, month_label: str) -> dict[str, Any]:
         if balance_col is not None and row[balance_col] is not None:
             balance = _parse_amount(row[balance_col])
 
-        category = categorize(concept)
+        category = categorize(concept, custom_rules)
 
         transactions.append({
             "date": tx_date.isoformat() if tx_date else None,

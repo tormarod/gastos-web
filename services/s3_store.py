@@ -23,6 +23,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 DATA_KEY = "data.json"
+CUSTOM_RULES_KEY = "merchant_rules.json"
 STATEMENTS_PREFIX = "statements/"
 
 
@@ -81,4 +82,48 @@ def upsert_month(month_data: dict[str, Any]) -> None:
 def delete_month(month_label: str) -> None:
     data = load_data()
     data["months"].pop(month_label, None)
+    save_data(data)
+
+
+# ── Custom merchant rules ────────────────────────────────────────────────────
+
+def load_custom_rules() -> list[dict[str, str]]:
+    """Load user-defined merchant → category rules. Returns [] if none saved."""
+    try:
+        resp = _client().get_object(Bucket=_bucket(), Key=CUSTOM_RULES_KEY)
+        return json.loads(resp["Body"].read()).get("rules", [])
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
+            return []
+        raise
+
+
+def save_custom_rules(rules: list[dict[str, str]]) -> None:
+    _client().put_object(
+        Bucket=_bucket(),
+        Key=CUSTOM_RULES_KEY,
+        Body=json.dumps({"rules": rules}, ensure_ascii=False).encode(),
+        ContentType="application/json",
+    )
+
+
+def recategorize_all(custom_rules: list[dict[str, str]]) -> None:
+    """
+    Re-run categorization on every stored transaction using the current rules
+    and rebuild each month's summary totals. Called after any rule change.
+    """
+    from services.categorizer import categorize
+
+    data = load_data()
+    for month_data in data["months"].values():
+        for tx in month_data["transactions"]:
+            tx["category"] = categorize(tx["concept"], custom_rules)
+
+        summary: dict[str, float] = {}
+        for tx in month_data["transactions"]:
+            if tx["amount"] < 0:
+                cat = tx["category"]
+                summary[cat] = round(summary.get(cat, 0) + abs(tx["amount"]), 2)
+        month_data["summary"] = summary
+
     save_data(data)
