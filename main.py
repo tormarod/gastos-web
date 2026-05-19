@@ -1,0 +1,235 @@
+from __future__ import annotations
+
+import os
+from datetime import datetime
+from typing import Annotated
+
+from dotenv import load_dotenv
+from fastapi import Cookie, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+load_dotenv()
+
+app = FastAPI(title="Gastos Web", docs_url=None, redoc_url=None)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "cambiame")
+COOKIE_NAME = "gastos_session"
+COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
+
+_signer = URLSafeTimedSerializer(SECRET_KEY)
+
+
+def _make_session_token() -> str:
+    return _signer.dumps("authenticated")
+
+
+def _verify_session(token: str) -> bool:
+    try:
+        _signer.loads(token, max_age=COOKIE_MAX_AGE)
+        return True
+    except (BadSignature, SignatureExpired):
+        return False
+
+
+def _require_auth(session: str | None) -> None:
+    if not session or not _verify_session(session):
+        raise HTTPException(status_code=303, headers={"Location": "/login"})
+
+
+# ── Auth routes ─────────────────────────────────────────────────────────────
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+
+
+@app.post("/login")
+async def login(request: Request, password: Annotated[str, Form()]):
+    if password != APP_PASSWORD:
+        return templates.TemplateResponse(
+            "login.html", {"request": request, "error": "Contraseña incorrecta."}, status_code=401
+        )
+    response = RedirectResponse("/", status_code=303)
+    response.set_cookie(
+        COOKIE_NAME,
+        _make_session_token(),
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=os.environ.get("ENV") == "production",
+    )
+    return response
+
+
+@app.get("/logout")
+async def logout():
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(COOKIE_NAME)
+    return response
+
+
+# ── Dashboard ────────────────────────────────────────────────────────────────
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request, gastos_session: Annotated[str | None, Cookie()] = None):
+    _require_auth(gastos_session)
+
+    from services import s3_store
+
+    data = s3_store.load_data()
+    months_data = data.get("months", {})
+
+    # Sort months chronologically
+    sorted_months = sorted(months_data.values(), key=lambda m: m["month"])
+
+    # Build aggregated stats across all months
+    all_categories: dict[str, float] = {}
+    for m in sorted_months:
+        for cat, amt in m.get("summary", {}).items():
+            all_categories[cat] = round(all_categories.get(cat, 0) + amt, 2)
+
+    total_months = len(sorted_months)
+    avg_categories = {
+        cat: round(total / total_months, 2)
+        for cat, total in all_categories.items()
+    } if total_months > 0 else {}
+
+    total_income   = round(sum(m["income"] for m in sorted_months), 2)
+    total_expenses = round(sum(m["total_expense"] for m in sorted_months), 2)
+    total_balance  = round(total_income - total_expenses, 2)
+
+    avg_income   = round(total_income / total_months, 2) if total_months else 0
+    avg_expenses = round(total_expenses / total_months, 2) if total_months else 0
+    avg_balance  = round(total_balance / total_months, 2) if total_months else 0
+
+    # Monthly series for the chart
+    monthly_series = [
+        {
+            "month": m["month"],
+            "income": m["income"],
+            "expense": m["total_expense"],
+            "balance": m["balance"],
+            "summary": m["summary"],
+        }
+        for m in sorted_months
+    ]
+
+    # Latest month transactions (for the transaction table)
+    latest_transactions = sorted_months[-1]["transactions"] if sorted_months else []
+    latest_month = sorted_months[-1]["month"] if sorted_months else None
+
+    # Savings goal: how much has been saved (positive balance months)
+    savings_accumulated = round(sum(m["balance"] for m in sorted_months if m["balance"] > 0), 2)
+    savings_goal = 2400.0
+
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "sorted_months": sorted_months,
+        "monthly_series": monthly_series,
+        "avg_categories": avg_categories,
+        "all_categories": all_categories,
+        "total_income": total_income,
+        "total_expenses": total_expenses,
+        "total_balance": total_balance,
+        "avg_income": avg_income,
+        "avg_expenses": avg_expenses,
+        "avg_balance": avg_balance,
+        "savings_accumulated": savings_accumulated,
+        "savings_goal": savings_goal,
+        "savings_pct": round(min(savings_accumulated / savings_goal * 100, 100), 1),
+        "latest_transactions": latest_transactions[:50],
+        "latest_month": latest_month,
+        "has_data": total_months > 0,
+        "now": datetime.now().strftime("%d/%m/%Y"),
+    })
+
+
+# ── Upload ───────────────────────────────────────────────────────────────────
+
+@app.get("/upload", response_class=HTMLResponse)
+async def upload_page(request: Request, gastos_session: Annotated[str | None, Cookie()] = None):
+    _require_auth(gastos_session)
+    from services import s3_store
+    data = s3_store.load_data()
+    existing_months = sorted(data.get("months", {}).keys(), reverse=True)
+    return templates.TemplateResponse("upload.html", {
+        "request": request,
+        "existing_months": existing_months,
+        "success": None,
+        "error": None,
+    })
+
+
+@app.post("/upload")
+async def upload_statement(
+    request: Request,
+    gastos_session: Annotated[str | None, Cookie()] = None,
+    file: UploadFile = File(...),
+    month: str = Form(...),
+):
+    _require_auth(gastos_session)
+
+    if not file.filename.endswith(".xlsx"):
+        from services import s3_store
+        data = s3_store.load_data()
+        return templates.TemplateResponse("upload.html", {
+            "request": request,
+            "existing_months": sorted(data.get("months", {}).keys(), reverse=True),
+            "success": None,
+            "error": "Solo se aceptan archivos .xlsx (Excel).",
+        }, status_code=400)
+
+    content = await file.read()
+
+    try:
+        from services import parser, s3_store
+        month_data = parser.parse_bbva_xlsx(content, month)
+        s3_store.upload_statement(month, content)
+        s3_store.upsert_month(month_data)
+    except Exception as exc:
+        from services import s3_store
+        data = s3_store.load_data()
+        return templates.TemplateResponse("upload.html", {
+            "request": request,
+            "existing_months": sorted(data.get("months", {}).keys(), reverse=True),
+            "success": None,
+            "error": f"Error al procesar el fichero: {exc}",
+        }, status_code=422)
+
+    return RedirectResponse(f"/upload?success={month}", status_code=303)
+
+
+@app.post("/delete-month")
+async def delete_month(
+    request: Request,
+    gastos_session: Annotated[str | None, Cookie()] = None,
+    month: str = Form(...),
+):
+    _require_auth(gastos_session)
+    from services import s3_store
+    s3_store.delete_month(month)
+    return RedirectResponse("/upload", status_code=303)
+
+
+# ── API (JSON) ───────────────────────────────────────────────────────────────
+
+@app.get("/api/data")
+async def api_data(gastos_session: Annotated[str | None, Cookie()] = None):
+    _require_auth(gastos_session)
+    from services import s3_store
+    return s3_store.load_data()
+
+
+# ── Redirect root /login if no session ──────────────────────────────────────
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    if exc.status_code == 303:
+        return RedirectResponse(exc.headers["Location"], status_code=303)
+    raise exc

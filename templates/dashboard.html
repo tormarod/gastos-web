@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan Financiero 2026 — Rodrigo & Rocío</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #222535; --border: #2e3248;
+    --accent: #6c63ff; --accent2: #00d4aa; --accent3: #ff6b6b; --accent4: #ffd93d;
+    --text: #e8eaf0; --text-muted: #8b90a8;
+    --green: #00d4aa; --red: #ff6b6b; --orange: #ff9f43; --yellow: #ffd93d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif;
+         min-height: 100vh; padding: 24px; }
+
+  nav {
+    display: flex; align-items: center; gap: 20px; margin-bottom: 28px;
+    padding-bottom: 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  nav .brand { font-weight: 800; color: #fff; font-size: 1rem; margin-right: auto; }
+  nav a { color: var(--text-muted); text-decoration: none; font-size: 0.88rem; font-weight: 600; }
+  nav a.active, nav a:hover { color: var(--accent); }
+  .badge { background: #6c63ff22; border: 1px solid #6c63ff55; color: var(--accent);
+           font-size: 0.75rem; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
+
+  h1 { font-size: 1.7rem; font-weight: 700; color: #fff; }
+  h2 { font-size: 1.05rem; font-weight: 600; color: var(--text); margin-bottom: 14px; }
+  h3 { font-size: 0.82rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+
+  .header { margin-bottom: 28px; }
+  .header-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 6px; }
+  .subtitle { color: var(--text-muted); font-size: 0.9rem; margin-top: 4px; }
+
+  /* KPIs */
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; position: relative; overflow: hidden; }
+  .kpi::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .kpi.income::before  { background: var(--green); }
+  .kpi.expense::before { background: var(--red); }
+  .kpi.variable::before{ background: var(--orange); }
+  .kpi.saving::before  { background: var(--accent); }
+  .kpi-value { font-size: 1.9rem; font-weight: 800; margin: 6px 0 4px; }
+  .kpi.income .kpi-value  { color: var(--green); }
+  .kpi.expense .kpi-value { color: var(--red); }
+  .kpi.variable .kpi-value{ color: var(--orange); }
+  .kpi.saving .kpi-value  { color: var(--accent); }
+  .kpi-delta { font-size: 0.78rem; color: var(--text-muted); }
+
+  /* Cards / grids */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+  .mb { margin-bottom: 20px; }
+
+  /* Savings goal */
+  .savings-goal {
+    background: linear-gradient(135deg, #1a1d27 0%, #1e1a3a 100%);
+    border: 1px solid #6c63ff33; border-radius: 14px; padding: 22px; margin-bottom: 20px;
+  }
+  .goal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .goal-amount { font-size: 2.2rem; font-weight: 800; color: var(--accent); }
+  .progress-bar-wrap { background: #2e3248; border-radius: 8px; height: 12px; margin: 12px 0 8px; overflow: hidden; }
+  .progress-bar { height: 100%; border-radius: 8px; background: linear-gradient(90deg, #6c63ff, #00d4aa); transition: width .6s ease; }
+  .progress-labels { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-muted); }
+
+  /* Category bars */
+  .cat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .cat-label { font-size: 0.82rem; width: 175px; flex-shrink: 0; color: var(--text); }
+  .cat-bar-wrap { flex: 1; background: #2e3248; border-radius: 4px; height: 8px; overflow: hidden; }
+  .cat-bar { height: 100%; border-radius: 4px; }
+  .cat-amount { font-size: 0.82rem; color: var(--text-muted); width: 65px; text-align: right; }
+
+  /* Alerts */
+  .alert { border-radius: 10px; padding: 14px 16px; margin-bottom: 12px;
+           border-left: 3px solid; display: flex; gap: 12px; align-items: flex-start; }
+  .alert.warn    { background: #ff9f4312; border-color: var(--orange); }
+  .alert.danger  { background: #ff6b6b12; border-color: var(--red); }
+  .alert.success { background: #00d4aa12; border-color: var(--green); }
+  .alert-icon { font-size: 1.1rem; }
+  .alert-text { font-size: 0.83rem; line-height: 1.6; color: var(--text); }
+  .alert-text b { color: #fff; }
+
+  /* Transaction table */
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  thead tr { border-bottom: 1px solid var(--border); }
+  th { text-align: left; padding: 8px 6px; color: var(--text-muted); font-weight: 600;
+       font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em; }
+  td { padding: 9px 6px; border-bottom: 1px solid #2e324822; }
+  tr:last-child td { border-bottom: none; }
+  .amount-pos { color: var(--green); font-weight: 600; }
+  .amount-neg { color: var(--red); }
+  .cat-pill {
+    display: inline-block; font-size: 0.7rem; padding: 2px 8px; border-radius: 10px;
+    background: #6c63ff22; border: 1px solid #6c63ff33; color: var(--accent);
+  }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: var(--text-muted);
+  }
+  .empty-state .icon { font-size: 3rem; margin-bottom: 16px; }
+  .empty-state h2 { color: var(--text); margin-bottom: 8px; }
+  .empty-state p { font-size: 0.88rem; margin-bottom: 20px; }
+  .empty-state a {
+    display: inline-block; background: var(--accent); color: #fff;
+    padding: 10px 22px; border-radius: 10px; text-decoration: none;
+    font-weight: 700; font-size: 0.9rem;
+  }
+
+  /* Balance chip */
+  .balance-bar {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 22px; margin-bottom: 20px; display: flex; gap: 28px; align-items: center; flex-wrap: wrap;
+  }
+  .balance-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: .08em;
+                   color: var(--text-muted); font-weight: 700; flex-shrink: 0; }
+
+  /* Month tabs */
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .tab { padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+         cursor: pointer; border: 1px solid var(--border); background: var(--surface2);
+         color: var(--text-muted); transition: all .2s; }
+  .tab.active { background: #6c63ff22; border-color: var(--accent); color: var(--accent); }
+
+  @media (max-width: 900px) {
+    .kpi-row { grid-template-columns: 1fr 1fr; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 500px) {
+    .kpi-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="brand">💰 Gastos 2026</span>
+  <a href="/" class="active">Dashboard</a>
+  <a href="/upload">Subir Extracto</a>
+  <a href="/logout">Salir</a>
+  <span class="badge">Rodrigo & Rocío</span>
+</nav>
+
+{% if not has_data %}
+<!-- Empty state -->
+<div class="empty-state">
+  <div class="icon">📂</div>
+  <h2>Aún no hay datos</h2>
+  <p>Sube tu primer extracto bancario de BBVA para ver el dashboard.</p>
+  <a href="/upload">Subir primer extracto →</a>
+</div>
+
+{% else %}
+
+<!-- Header -->
+<div class="header">
+  <div class="header-top">
+    <div>
+      <h1>📊 Plan Financiero 2026</h1>
+      <div class="subtitle">Rodrigo & Rocío · {{ sorted_months|map(attribute='month')|list|join(', ') }} · Cuenta BBVA</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="badge">{{ sorted_months|length }} mes{% if sorted_months|length != 1 %}es{% endif %} de datos</span>
+      <span class="badge" style="background:#00d4aa22;border-color:#00d4aa55;color:var(--green)">Actualizado {{ now }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- KPIs -->
+<div class="kpi-row">
+  <div class="kpi income">
+    <h3>Ingresos totales</h3>
+    <div class="kpi-value">{{ "%.0f"|format(total_income) }}€</div>
+    <div class="kpi-delta">Media {{ "%.0f"|format(avg_income) }}€/mes</div>
+  </div>
+  <div class="kpi expense">
+    <h3>Gastos totales</h3>
+    <div class="kpi-value">{{ "%.0f"|format(total_expenses) }}€</div>
+    <div class="kpi-delta">Media {{ "%.0f"|format(avg_expenses) }}€/mes</div>
+  </div>
+  <div class="kpi variable">
+    <h3>Balance acumulado</h3>
+    <div class="kpi-value {% if total_balance >= 0 %}income{% else %}expense{% endif %}" style="font-size:1.9rem;font-weight:800;margin:6px 0 4px;color:{% if total_balance >= 0 %}var(--green){% else %}var(--red){% endif %}">
+      {% if total_balance >= 0 %}+{% endif %}{{ "%.0f"|format(total_balance) }}€
+    </div>
+    <div class="kpi-delta">Media {{ "%.0f"|format(avg_balance) }}€/mes</div>
+  </div>
+  <div class="kpi saving">
+    <h3>Objetivo ahorro</h3>
+    <div class="kpi-value">200€/mes</div>
+    <div class="kpi-delta">2.400€/año · viajes, hogar, ocio</div>
+  </div>
+</div>
+
+<!-- Balance bar -->
+<div class="balance-bar">
+  <div class="balance-label">📊 BALANCE MEDIO/MES</div>
+  <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
+    <div><span style="color:var(--text-muted);font-size:0.8rem">Entra</span>
+         <span style="font-weight:700;color:var(--green);font-size:1.1rem;margin-left:6px">{{ "%.0f"|format(avg_income) }}€</span></div>
+    <div style="color:var(--border)">−</div>
+    <div><span style="color:var(--text-muted);font-size:0.8rem">Sale</span>
+         <span style="font-weight:700;color:var(--red);font-size:1.1rem;margin-left:6px">{{ "%.0f"|format(avg_expenses) }}€</span></div>
+    <div style="color:var(--border)">=</div>
+    <div>
+      <span style="font-weight:700;font-size:1.1rem;color:{% if avg_balance >= 0 %}var(--green){% else %}var(--orange){% endif %}">
+        {% if avg_balance >= 0 %}+{% endif %}{{ "%.0f"|format(avg_balance) }}€/mes
+      </span>
+      <span style="color:var(--text-muted);font-size:0.78rem;margin-left:6px">
+        ({% if avg_balance >= 0 %}superávit{% else %}déficit{% endif %})
+      </span>
+    </div>
+    <div style="width:1px;height:32px;background:var(--border)"></div>
+    <div><span style="color:var(--text-muted);font-size:0.8rem">Objetivo</span>
+         <span style="font-weight:700;color:var(--accent);font-size:1.1rem;margin-left:6px">+200€/mes</span></div>
+  </div>
+</div>
+
+<!-- Savings goal + charts -->
+<div style="display:grid;grid-template-columns:1fr 1.6fr;gap:16px;margin-bottom:20px">
+  <div class="savings-goal">
+    <div class="goal-header">
+      <div>
+        <h3 style="color:var(--text-muted);margin-bottom:6px">✈️ FONDO COMÚN</h3>
+        <div style="font-size:0.85rem;color:var(--text-muted)">Viajes · Hogar · Ocio</div>
+      </div>
+      <div class="goal-amount">2.400€</div>
+    </div>
+    <div style="display:flex;gap:20px;margin-bottom:14px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:0.75rem;color:var(--text-muted)">Acumulado</div>
+        <div style="font-size:1.3rem;font-weight:700;color:var(--green)">{{ "%.0f"|format(savings_accumulated) }}€</div>
+      </div>
+      <div>
+        <div style="font-size:0.75rem;color:var(--text-muted)">Progreso</div>
+        <div style="font-size:1.3rem;font-weight:700;color:var(--accent)">{{ savings_pct }}%</div>
+      </div>
+      <div>
+        <div style="font-size:0.75rem;color:var(--text-muted)">Meta anual</div>
+        <div style="font-size:1.3rem;font-weight:700;color:var(--yellow)">2.400€</div>
+      </div>
+    </div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar" style="width:{{ savings_pct }}%"></div>
+    </div>
+    <div class="progress-labels"><span>0€</span><span>600€</span><span>1.200€</span><span>1.800€</span><span>2.400€</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Evolución mensual de gastos</h2>
+    <div style="height:220px;position:relative">
+      <canvas id="monthlyChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Category breakdown + Donut -->
+<div class="grid-2 mb">
+  <div class="card">
+    <h2>Desglose por categoría (media mensual)</h2>
+    <div id="catBars"></div>
+  </div>
+  <div class="card">
+    <h2>Distribución media mensual</h2>
+    <div style="height:260px;position:relative">
+      <canvas id="donutChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Transactions -->
+<div class="card mb">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <h2 style="margin-bottom:0">Últimas transacciones {% if latest_month %}({{ latest_month }}){% endif %}</h2>
+    <a href="/upload" style="font-size:0.8rem;color:var(--accent);text-decoration:none;font-weight:600">+ Subir nuevo mes →</a>
+  </div>
+
+  {% if latest_transactions %}
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Concepto</th>
+          <th>Categoría</th>
+          <th style="text-align:right">Importe</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tx in latest_transactions %}
+        <tr>
+          <td style="color:var(--text-muted);white-space:nowrap">{{ tx.date or '—' }}</td>
+          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ tx.concept }}</td>
+          <td><span class="cat-pill">{{ tx.category }}</span></td>
+          <td style="text-align:right;white-space:nowrap" class="{% if tx.amount > 0 %}amount-pos{% else %}amount-neg{% endif %}">
+            {% if tx.amount > 0 %}+{% endif %}{{ "%.2f"|format(tx.amount) }}€
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="color:var(--text-muted);font-size:0.85rem;padding:20px 0">No hay transacciones para mostrar.</div>
+  {% endif %}
+</div>
+
+{% endif %}{# end has_data #}
+
+<script>
+{% if has_data %}
+// ── Data from server ──────────────────────────────────────────────────────
+const monthlySeries = {{ monthly_series | tojson }};
+const avgCategories = {{ avg_categories | tojson }};
+
+// ── Colours ───────────────────────────────────────────────────────────────
+const PALETTE = [
+  '#6c63ff','#00d4aa','#ff6b6b','#ffd93d','#ff9f43',
+  '#a29bfe','#55efc4','#fd79a8','#fdcb6e','#74b9ff'
+];
+const CAT_ICONS = {
+  'Alquiler':'🏠','Suministros':'⚡','Telefonía':'📱','Supermercado':'🛒',
+  'Delivery':'🍕','Restaurantes':'🍽️','Amazon/Online':'📦','Ocio/Cultura':'🎭',
+  'Transporte':'🚗','Salud':'💊','Ropa/Accesorios':'👗','Otros':'📎'
+};
+
+Chart.defaults.color = '#8b90a8';
+Chart.defaults.borderColor = '#2e3248';
+
+// ── Monthly stacked bar ────────────────────────────────────────────────────
+const allCats = [...new Set(
+  monthlySeries.flatMap(m => Object.keys(m.summary))
+)].filter(c => c !== 'Ingresos');
+
+const monthlyCtx = document.getElementById('monthlyChart').getContext('2d');
+new Chart(monthlyCtx, {
+  type: 'bar',
+  data: {
+    labels: monthlySeries.map(m => m.month),
+    datasets: [
+      ...allCats.map((cat, i) => ({
+        label: cat,
+        data: monthlySeries.map(m => m.summary[cat] || 0),
+        backgroundColor: PALETTE[i % PALETTE.length] + 'cc',
+        stack: 'expenses',
+      })),
+      {
+        label: 'Ingresos',
+        data: monthlySeries.map(m => m.income),
+        backgroundColor: '#00d4aa33',
+        borderColor: '#00d4aa',
+        borderWidth: 2,
+        type: 'line',
+        fill: false,
+        stack: undefined,
+        tension: 0.3,
+        pointRadius: 4,
+        yAxisID: 'y',
+      }
+    ],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false } },
+      y: { grid: { color: '#2e324844' }, ticks: { callback: v => v + '€' } },
+    },
+  }
+});
+
+// ── Donut ─────────────────────────────────────────────────────────────────
+const donutCats = Object.entries(avgCategories)
+  .filter(([k]) => k !== 'Ingresos')
+  .sort((a,b) => b[1]-a[1]);
+
+const donutCtx = document.getElementById('donutChart').getContext('2d');
+new Chart(donutCtx, {
+  type: 'doughnut',
+  data: {
+    labels: donutCats.map(([k]) => k),
+    datasets: [{
+      data: donutCats.map(([,v]) => v),
+      backgroundColor: PALETTE.slice(0, donutCats.length).map(c => c + 'cc'),
+      borderColor: '#1a1d27',
+      borderWidth: 2,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    cutout: '65%',
+    plugins: {
+      legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12 } },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed.toFixed(0)}€` } }
+    }
+  }
+});
+
+// ── Category bars ─────────────────────────────────────────────────────────
+const catContainer = document.getElementById('catBars');
+const sortedCats = Object.entries(avgCategories)
+  .filter(([k]) => k !== 'Ingresos')
+  .sort((a,b) => b[1]-a[1]);
+const maxVal = sortedCats[0]?.[1] || 1;
+
+sortedCats.forEach(([cat, avg], i) => {
+  const pct = Math.round(avg / maxVal * 100);
+  const icon = CAT_ICONS[cat] || '💶';
+  catContainer.innerHTML += `
+    <div class="cat-row">
+      <div class="cat-label">${icon} ${cat}</div>
+      <div class="cat-bar-wrap">
+        <div class="cat-bar" style="width:${pct}%;background:${PALETTE[i%PALETTE.length]}"></div>
+      </div>
+      <div class="cat-amount">${avg.toFixed(0)}€</div>
+    </div>`;
+});
+{% endif %}
+</script>
+</body>
+</html>
