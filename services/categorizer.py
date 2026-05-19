@@ -125,7 +125,7 @@ RULES: list[tuple[str, list[str]]] = [
 
     # Private hire
     ("Transporte privado", [
-        "CABIFY", "UBER ", "BOLT ", "FREE NOW", "FREENOW", "MYTAXI",
+        "CABIFY", "UBER ", "BOLT", "FREE NOW", "FREENOW", "MYTAXI",
         "BLABLACAR",
     ]),
 
