@@ -56,7 +56,7 @@ RULES: list[tuple[str, list[str]]] = [
 
     # Restaurants & cafes
     ("Restaurantes", [
-        "RESTAURANTE", "CAFETERIA", "CAFETERÍA", "HELADERIA", "HELADERÍA",
+        "RESTAURANTE", "CAFETERIA", "CAFETERÍA",
         "CERVECERIA", "CERVECERÍA", "TABERNA", "MARISQUERIA", "MARISQUERÍA",
         "ASADOR", "BRASERIA", "BRASERÍA", "PIZZERIA", "PIZZERÍA",
         "HAMBURGUESERIA", "HAMBURGUESERÍA", "BOCATERIA", "BOCATERÍA",
@@ -65,10 +65,21 @@ RULES: list[tuple[str, list[str]]] = [
         "100 MONTADITOS", "TGB ", "THE GOOD BURGER", "VIPS ", "FOSTER'S",
         "FOSTERS HOLLYWOOD", "TGIFRIDAYS", "TGI FRIDAY", "POPEYES",
         "FRESCO CO", "HONEST GREENS", "LATERAL ", "GINOS ", "WAGAMAMA",
-        "STARBUCKS", "COSTA COFFEE", "MCCAFE", "DUNKIN", "CAFES ",
         "BIKI BAT", "LA CUADRA",
         "BAR ", "PUB ", "TASCA ", "MESÓN", "MESON ", "BODEGA ",
-        "SIDRERIA", "SIDRERRÍA", "CHURRERIA", "CHURRERÍAS",
+        "SIDRERIA", "SIDRERRÍA",
+    ]),
+
+    # Cafes, bakeries, ice cream, snacks on the go
+    ("Cafés y Snacks", [
+        "STARBUCKS", "COSTA COFFEE", "MCCAFE", "DUNKIN",
+        "CAFES ", "CAFE ", "CAFETÍN",
+        "PASTELERIA", "PASTELERÍA", "CONFITERIA", "CONFITERÍA",
+        "BOLLERIA", "BOLLERÍA", "CROISSANTERIA", "CROISSANTERÍA",
+        "PANADERIA", "PANADERÍA",
+        "HELADERIA", "HELADERÍA", "GELATERIA", "GELATERÍA",
+        "CHURRERIA", "CHURRERÍA", "CHOCOLATERIA", "CHOCOLATERÍA",
+        "GRANJA ", "HORCHATERIA", "HORCHATERRÍA",
     ]),
 
     # Online shopping

@@ -233,7 +233,7 @@ ALL_CATEGORIES = [
     "Delivery", "Restaurantes", "Amazon/Online", "Ocio/Cultura",
     "Transporte", "Salud", "Ropa/Accesorios", "Belleza",
     "Viajes", "Compras", "Hogar", "Seguros", "Gasolinera",
-    "Efectivo", "Comisiones", "Ingresos", "Ajustes de cuenta",
+    "Efectivo", "Comisiones", "Ingresos", "Ajustes de cuenta", "Cafés y Snacks",
 ]
 
 
