@@ -40,6 +40,8 @@ def parse_bbva_xlsx(file_bytes: bytes, month_label: str) -> dict[str, Any]:
     import io
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     ws = wb.active
+    if ws is None:
+        raise ValueError("El fichero Excel no contiene hojas.")
 
     rows = list(ws.iter_rows(values_only=True))
 

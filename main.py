@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated
 
 from dotenv import load_dotenv
-from fastapi import Cookie, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Cookie, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -37,9 +37,13 @@ def _verify_session(token: str) -> bool:
         return False
 
 
+class _RedirectToLogin(Exception):
+    pass
+
+
 def _require_auth(session: str | None) -> None:
     if not session or not _verify_session(session):
-        raise HTTPException(status_code=303, headers={"Location": "/login"})
+        raise _RedirectToLogin()
 
 
 # ── Auth routes ─────────────────────────────────────────────────────────────
@@ -175,7 +179,7 @@ async def upload_statement(
 ):
     _require_auth(gastos_session)
 
-    if not file.filename.endswith(".xlsx"):
+    if not (file.filename or "").endswith(".xlsx"):
         from services import s3_store
         data = s3_store.load_data()
         return templates.TemplateResponse("upload.html", {
@@ -226,10 +230,8 @@ async def api_data(gastos_session: Annotated[str | None, Cookie()] = None):
     return s3_store.load_data()
 
 
-# ── Redirect root /login if no session ──────────────────────────────────────
+# ── Redirect to login when session is missing or invalid ────────────────────
 
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    if exc.status_code == 303:
-        return RedirectResponse(exc.headers["Location"], status_code=303)
-    raise exc
+@app.exception_handler(_RedirectToLogin)
+async def redirect_to_login_handler(request: Request, exc: _RedirectToLogin):
+    return RedirectResponse("/login", status_code=303)
