@@ -18,6 +18,7 @@ No database. All financial data lives in a single `data.json` file in S3.
 ## Features
 
 - **Dashboard** — KPIs, monthly trend charts, category breakdown, transaction list
+- **Dynamic insights** — auto-generated cards flagging spending spikes, savings streaks, and year-end projections
 - **Upload** — drag-and-drop BBVA `.xlsx` export → auto-parsed and categorised → dashboard updates instantly
 - **Savings goal tracker** — progress bar towards the €2,400/year shared fund
 - **Secure** — password-protected, HTTPS-only in production, no data exposed publicly
@@ -70,6 +71,7 @@ gastos-web/
 ├── main.py                  # FastAPI app — routes, auth, upload handling
 ├── services/
 │   ├── categorizer.py       # Keyword rules: BBVA concept → spending category
+│   ├── insights.py          # Dynamic insight cards (spending spikes, savings trends)
 │   ├── parser.py            # BBVA XLSX parser (header-row auto-detection)
 │   └── s3_store.py          # AWS S3 read/write (data.json + raw statements)
 └── templates/
@@ -85,12 +87,16 @@ Transactions are automatically tagged using keyword matching against the BBVA co
 | Category | Keywords matched |
 |---|---|
 | Alquiler | ALQUILER, ARRENDAMIENTO |
+| Suministros | OCTOPUS, NATURGY, IBERDROLA, ENDESA… |
+| Telefonía | DIGI, MOVISTAR, VODAFONE, ORANGE… |
 | Supermercado | DIA, MERCADONA, ALCAMPO, LIDL, CARREFOUR… |
 | Delivery | GLOVO, JUSTEAT, UBER EATS, DOMINOS… |
-| Restaurantes | RESTAURANTE, CAFETERIA, BAR, BIKI BAT… |
-| Amazon/Online | AMAZON, ALIEXPRESS, SHEIN… |
-| Suministros | OCTOPUS, NATURGY, IBERDROLA… |
-| Telefonía | DIGI, MOVISTAR, VODAFONE… |
-| Transporte | METRO, RENFE, EMT, CABIFY, UBER… |
+| Restaurantes | RESTAURANTE, CAFETERIA, BAR, MCDONALDS, BURGER KING… |
+| Amazon/Online | AMAZON, ALIEXPRESS, SHEIN, EL CORTE INGLES… |
+| Ocio/Cultura | SPOTIFY, NETFLIX, STEAM, TICKETMASTER, CINESA… |
+| Transporte | METRO, RENFE, EMT, CABIFY, UBER, RYANAIR, IBERIA… |
+| Salud | FARMACIA, CLINICA, DENTISTA, SANITAS, ADESLAS… |
+| Ropa/Accesorios | ZARA, H&M, MANGO, PRIMARK, DECATHLON, NIKE… |
+| Ingresos | NOMINA, TRANSFERENCIA RECIBIDA, BIZUM RECIBIDO… |
 
 To add or adjust rules, edit [`services/categorizer.py`](services/categorizer.py).
