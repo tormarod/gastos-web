@@ -72,7 +72,7 @@ Required: `SECRET_KEY`, `APP_PASSWORD`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_
 ## Spending categories
 
 Alquiler · Suministros · Telefonía · Supermercado · Delivery · Restaurantes · Cafés y Snacks ·
-Amazon/Online · Ocio/Cultura · Transporte · Salud · Ropa/Accesorios · Belleza ·
+Amazon/Online · Ocio/Cultura · Coche · Transporte público · Transporte privado · Salud · Ropa/Accesorios · Belleza ·
 Viajes · Compras · Hogar · Seguros · Gasolinera · Efectivo · Comisiones · Ingresos · Ajustes de cuenta · Otros
 
 ## What to avoid

@@ -107,17 +107,25 @@ RULES: list[tuple[str, list[str]]] = [
         "PARQUE ", "ZOO ", "AQUARIUM",
     ]),
 
-    # Transport
-    ("Transporte", [
-        "METRO ", "METRO DE MADRID", "EMT ", "MUNICIPALES BUS",
-        "RENFE", "CERCANIAS", "CERCANÍAS", "ALVIA ", "AVE ", "AVANT ",
-        "CABIFY", "UBER ", "BOLT ", "FREE NOW", "FREENOW", "MYTAXI",
-        "BLABLACAR", "ALSA ", "AVANZA ", "FLIXBUS",
-        "AENA", "VUELING", "IBERIA ", "RYANAIR", "EASYJET", "WIZZ AIR",
-        "NORWEGIAN", "TRANSAVIA", "VOLOTEA",
-        "BICIMAD", "DONKEY REPUBLIC",
+    # Car costs (parking, tolls, maintenance)
+    ("Coche", [
         "PARKING ", "SABA ", "EMPARK", "INDIGO PARK",
         "AUTOPISTA", "PEAJE ", "ITINERE", "CINTRA", "ABERTIS",
+        "ITV ", "TALLER ", "MECANICO", "MECÁNICO", "NEUMATICO", "NEUMÁTICO",
+    ]),
+
+    # Public transport
+    ("Transporte público", [
+        "METRO ", "METRO DE MADRID", "EMT ", "MUNICIPALES BUS",
+        "RENFE", "CERCANIAS", "CERCANÍAS", "ALVIA ", "AVE ", "AVANT ",
+        "ALSA ", "AVANZA ", "FLIXBUS",
+        "BICIMAD", "DONKEY REPUBLIC",
+    ]),
+
+    # Private hire
+    ("Transporte privado", [
+        "CABIFY", "UBER ", "BOLT ", "FREE NOW", "FREENOW", "MYTAXI",
+        "BLABLACAR",
     ]),
 
     # Health
@@ -154,7 +162,7 @@ RULES: list[tuple[str, list[str]]] = [
         "CENTROS UNIQUE", "ARENAL PERFUMERIAS", "PERFUMERIA", "PERFUMERÍA",
     ]),
 
-    # Travel & accommodation (separate from transport)
+    # Travel & accommodation (including flights)
     ("Viajes", [
         "BOOKING.COM", "BOOKING ", "AIRBNB", "HOTELS.COM", "EXPEDIA",
         "TRIVAGO", "HOSTELWORLD", "LOGITRAVEL", "TRAVELGENIO", "DESTINIA",
@@ -162,6 +170,8 @@ RULES: list[tuple[str, list[str]]] = [
         "MARRIOTT", "HILTON", "HYATT", "AC HOTEL",
         "CIVITATIS", "GETYOURGUIDE", "VIATOR", "AGENCIA DE VIAJES",
         "ALOJAMIENTO", "APARTAMENTO TURISTICO",
+        "AENA", "VUELING", "IBERIA ", "RYANAIR", "EASYJET", "WIZZ AIR",
+        "NORWEGIAN", "TRANSAVIA", "VOLOTEA",
     ]),
 
     # General purchases — physical stores not covered by other categories

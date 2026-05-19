@@ -230,10 +230,10 @@ async def delete_month(
 
 ALL_CATEGORIES = [
     "Alquiler", "Suministros", "Telefonía", "Supermercado",
-    "Delivery", "Restaurantes", "Amazon/Online", "Ocio/Cultura",
-    "Transporte", "Salud", "Ropa/Accesorios", "Belleza",
+    "Delivery", "Restaurantes", "Cafés y Snacks", "Amazon/Online", "Ocio/Cultura",
+    "Coche", "Transporte público", "Transporte privado", "Salud", "Ropa/Accesorios", "Belleza",
     "Viajes", "Compras", "Hogar", "Seguros", "Gasolinera",
-    "Efectivo", "Comisiones", "Ingresos", "Ajustes de cuenta", "Cafés y Snacks",
+    "Efectivo", "Comisiones", "Ingresos", "Ajustes de cuenta",
 ]
 
 
