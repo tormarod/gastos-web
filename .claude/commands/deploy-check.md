@@ -24,6 +24,7 @@ Check each item and report pass / fail / warning:
 - [ ] Check if the categorisation rules table reflects what is currently in `services/categorizer.py`
 - [ ] If anything is outdated or missing, update `README.md` before pushing — do not ask, just fix it
 - [ ] Report exactly what was changed in the README (or "README is up to date" if nothing changed)
+- [ ] If anything is outdated or missing, update `CLAUDE.md`. Only the project related descriptions.
 
 **After confirming all pass**, run `/push` to commit and deploy.
 If any item fails, fix it first and re-run this checklist.

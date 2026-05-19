@@ -8,10 +8,11 @@ FastAPI dashboard on Render.com.
 
 ## Architecture
 
-- **`main.py`** — single FastAPI file. Routes: `/` (dashboard), `/upload`, `/login`, `/logout`, `/api/data`.
-- **`services/categorizer.py`** — keyword rules mapping BBVA concept strings → spending categories. Edit here to fix miscategorisations.
+- **`main.py`** — single FastAPI file. Routes: `/` (dashboard), `/upload`, `/login`, `/logout`, `/api/data`, `/corrections` (GET/POST), `/corrections/delete`.
+- **`services/categorizer.py`** — keyword rules mapping BBVA concept strings → spending categories. Also exposes `suggest_pattern()` to strip BBVA prefixes for the correction UI.
+- **`services/insights.py`** — generates up to 6 dynamic insight cards from monthly data (MoM deltas, streaks, savings trajectory, best month).
 - **`services/parser.py`** — BBVA XLSX parser. Auto-detects the header row so it handles format variations. `_parse_amount()` handles Spanish number format (1.234,56).
-- **`services/s3_store.py`** — all persistence. One JSON file (`data.json`) holds all months; raw XLSX files go to `statements/<month>.xlsx`.
+- **`services/s3_store.py`** — all persistence. `data.json` holds all months; `merchant_rules.json` holds user-defined corrections; raw XLSX files go to `statements/<month>.xlsx`. Also exposes `load_custom_rules`, `save_custom_rules`, `recategorize_all`.
 - **`templates/`** — Jinja2 HTML. Chart.js loaded from CDN. No build step, no Node.
 
 ## Data model
@@ -31,6 +32,17 @@ S3 `data.json`:
   }
 }
 ```
+
+S3 `merchant_rules.json`:
+```json
+{
+  "rules": [
+    { "pattern": "BIKI BAT", "category": "Restaurantes" },
+    { "pattern": "BOOKING.COM", "category": "Viajes" }
+  ]
+}
+```
+Custom rules are applied before built-in keyword rules. `recategorize_all()` rewrites every stored transaction's category when rules change.
 
 ## Auth
 
@@ -60,7 +72,8 @@ Required: `SECRET_KEY`, `APP_PASSWORD`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_
 ## Spending categories
 
 Alquiler · Suministros · Telefonía · Supermercado · Delivery · Restaurantes ·
-Amazon/Online · Ocio/Cultura · Transporte · Salud · Ropa/Accesorios · Ingresos · Otros
+Amazon/Online · Ocio/Cultura · Transporte · Salud · Ropa/Accesorios · Belleza ·
+Viajes · Compras · Hogar · Seguros · Gasolinera · Efectivo · Comisiones · Ingresos · Otros
 
 ## What to avoid
 
@@ -68,3 +81,4 @@ Amazon/Online · Ocio/Cultura · Transporte · Salud · Ropa/Accesorios · Ingre
 - Do not add user accounts or complex auth — this is a two-person private tool.
 - Do not add a frontend framework — plain Jinja2 + Chart.js is the right fit.
 - Do not commit `.env`. It is in `.gitignore`. Use `.env.example` for documentation.
+- Do not push unless asked to.

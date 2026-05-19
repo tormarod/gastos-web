@@ -20,6 +20,7 @@ No database. All financial data lives in a single `data.json` file in S3.
 - **Dashboard** — KPIs, monthly trend charts, category breakdown, transaction list
 - **Dynamic insights** — auto-generated cards flagging spending spikes, savings streaks, and year-end projections
 - **Upload** — drag-and-drop BBVA `.xlsx` export → auto-parsed and categorised → dashboard updates instantly
+- **Merchant corrections** — fix miscategorised transactions from `/corrections`, rules saved to S3 and applied to all months instantly
 - **Savings goal tracker** — progress bar towards the €2,400/year shared fund
 - **Secure** — password-protected, HTTPS-only in production, no data exposed publicly
 
@@ -68,16 +69,17 @@ See [`DEPLOY.md`](DEPLOY.md) for the full step-by-step guide (AWS S3 setup + Ren
 
 ```
 gastos-web/
-├── main.py                  # FastAPI app — routes, auth, upload handling
+├── main.py                  # FastAPI app — routes, auth, upload, corrections
 ├── services/
 │   ├── categorizer.py       # Keyword rules: BBVA concept → spending category
 │   ├── insights.py          # Dynamic insight cards (spending spikes, savings trends)
 │   ├── parser.py            # BBVA XLSX parser (header-row auto-detection)
-│   └── s3_store.py          # AWS S3 read/write (data.json + raw statements)
+│   └── s3_store.py          # AWS S3 read/write (data.json, merchant_rules.json, statements/)
 └── templates/
     ├── login.html
     ├── dashboard.html        # Dynamic dashboard with Chart.js
-    └── upload.html
+    ├── upload.html
+    └── corrections.html      # Merchant correction UI
 ```
 
 ## Categorisation rules
@@ -90,13 +92,21 @@ Transactions are automatically tagged using keyword matching against the BBVA co
 | Suministros | OCTOPUS, NATURGY, IBERDROLA, ENDESA… |
 | Telefonía | DIGI, MOVISTAR, VODAFONE, ORANGE… |
 | Supermercado | DIA, MERCADONA, ALCAMPO, LIDL, CARREFOUR… |
-| Delivery | GLOVO, JUSTEAT, UBER EATS, DOMINOS… |
-| Restaurantes | RESTAURANTE, CAFETERIA, BAR, MCDONALDS, BURGER KING… |
-| Amazon/Online | AMAZON, ALIEXPRESS, SHEIN, EL CORTE INGLES… |
-| Ocio/Cultura | SPOTIFY, NETFLIX, STEAM, TICKETMASTER, CINESA… |
+| Delivery | GLOVO, JUSTEAT, UBER EATS, DOMINOS, TELEPIZZA… |
+| Restaurantes | RESTAURANTE, CAFETERIA, BAR, MCDONALDS, BURGER KING, STARBUCKS… |
+| Amazon/Online | AMAZON, ALIEXPRESS, SHEIN, ASOS, ZALANDO, PAYPAL… |
+| Ocio/Cultura | SPOTIFY, NETFLIX, STEAM, TICKETMASTER, FEVER, CINESA… |
 | Transporte | METRO, RENFE, EMT, CABIFY, UBER, RYANAIR, IBERIA… |
-| Salud | FARMACIA, CLINICA, DENTISTA, SANITAS, ADESLAS… |
+| Salud | FARMACIA, CLINICA, DENTISTA, SANITAS, QUIRONSALUD… |
 | Ropa/Accesorios | ZARA, H&M, MANGO, PRIMARK, DECATHLON, NIKE… |
+| Belleza | SEPHORA, DOUGLAS, DRUNI, KIKO, PELUQUERIA, BARBERIA… |
+| Viajes | BOOKING.COM, AIRBNB, HOTELS.COM, NH HOTEL, CIVITATIS… |
+| Compras | EL CORTE INGLES, FNAC, MEDIAMARKT, PAPELERIA, LIBRERIA… |
+| Hogar | IKEA, LEROY MERLIN, BRICOMART, CONFORAMA… |
+| Seguros | MAPFRE, GENERALI, ALLIANZ, MUTUA MADRILEÑA, LINEA DIRECTA… |
+| Gasolinera | REPSOL, BP, CEPSA, SHELL, GALP… |
+| Efectivo | CAJERO, REINTEGRO CAJERO, ATM… |
+| Comisiones | COMISION, MANTENIMIENTO CUENTA, CUOTA TARJETA… |
 | Ingresos | NOMINA, TRANSFERENCIA RECIBIDA, BIZUM RECIBIDO… |
 
 To add or adjust rules, edit [`services/categorizer.py`](services/categorizer.py).
