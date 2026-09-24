@@ -27,6 +27,7 @@
   nav a.active, nav a:hover { color: var(--accent); }
   .nav-count { background: var(--yellow); color: #1a1d27; font-size: 0.7rem; font-weight: 800;
                border-radius: 10px; padding: 1px 7px; }
+  .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--orange); display: inline-block; }
 
   h1 { font-size: 1.4rem; font-weight: 700; color: #fff; margin-bottom: 6px; }
   h2 { font-size: 1rem; font-weight: 600; margin-bottom: 14px; }
@@ -80,8 +81,22 @@
   <a href="/revisar" class="{{ 'active' if page == 'review.html' }}">Revisar
     {%- if review_count %} <span class="nav-count" title="Movimientos por revisar">{{ review_count }}</span>{% endif %}</a>
   <a href="/upload" class="{{ 'active' if page == 'upload.html' }}">Subir extracto</a>
+  <a href="/banco" class="{{ 'active' if page == 'bank.html' }}">Banco
+    {%- if bank.state in ('expired', 'expiring', 'error', 'choose_account') %} <span class="nav-dot" title="Necesita atención"></span>{% endif %}</a>
   <a href="/logout">Salir</a>
 </nav>
+
+{% if page != 'bank.html' %}
+  {% if bank.state == 'expired' %}
+  <div class="alert error">El permiso de {{ bank.bank_name }} ha caducado y no se están importando movimientos. <a href="/banco">Reconectar →</a></div>
+  {% elif bank.state == 'expiring' %}
+  <div class="alert warn">El permiso de {{ bank.bank_name }} caduca en {{ bank.days_left }} días. <a href="/banco">Renovarlo ahora →</a></div>
+  {% elif bank.state == 'error' %}
+  <div class="alert warn">La última sincronización con {{ bank.bank_name }} falló. <a href="/banco">Ver detalle →</a></div>
+  {% elif bank.state == 'choose_account' %}
+  <div class="alert warn">{{ bank.bank_name }} está conectado, pero falta elegir cuál es la cuenta común. <a href="/banco">Elegir cuenta →</a></div>
+  {% endif %}
+{% endif %}
 
 {% block content %}{% endblock %}
 

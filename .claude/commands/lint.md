@@ -22,7 +22,7 @@ For each reported error:
 ```
 pytest
 ```
-Every test must pass. They run offline (local storage).
+Every test must pass. They run offline (local storage, fake bank).
 
 ## Step 4 — Check for common issues specific to this project
 
@@ -32,15 +32,16 @@ Every test must pass. They run offline (local storage).
 
 **os.environ**: `os.environ["KEY"]` raises KeyError if missing; `os.environ.get("KEY")` returns `None`. Use `[]` only for required vars (they'll fail loudly at startup, which is correct). Use `.get()` only for optional ones.
 
-**Jinja2 TemplateResponse**: use `templates.TemplateResponse(request, name, context)`; pages go through `_render()` so the nav gets `review_count`.
+**Jinja2 TemplateResponse**: use `templates.TemplateResponse(request, name, context)`; pages go through `_render()` so the nav gets `review_count` and `bank`.
 
-**Storage**: never write S3 JSON directly from routes; use `repo.update_ledger/update_rules` so conflicting writes retry.
+**Storage**: never write S3 JSON directly from routes; use `repo.update_ledger/update_rules/update_settings` so conflicting writes retry.
 
 ## Step 5 — Verify no secrets in tracked files
 ```
 git ls-files | xargs grep -l "AKIA" 2>/dev/null
+git ls-files | xargs grep -l "BEGIN PRIVATE KEY" 2>/dev/null
 ```
-If anything other than `.env.example` (AKIA placeholder) or tests using the same placeholder is returned, stop immediately and alert the user.
+If anything other than `.env.example` (AKIA placeholder) or the test key helpers is returned, stop immediately and alert the user.
 Check that `.env.example` only contains placeholder values (AKIA followed by X's, not real characters).
 
 ## Step 6 — Report

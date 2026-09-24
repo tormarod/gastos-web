@@ -7,8 +7,7 @@ For each movement the first layer that answers wins:
   2. Credits only: income keywords (nómina, transferencias, Bizum...) → Ingresos.
   3. Built-in keyword rules: whole-word matching, longest keyword wins, ties
      go to the category listed first.
-  4. Merchant category code (MCC), when a movement carries one (bank feeds
-     do; Excel exports don't).
+  4. Merchant category code (MCC) sent by the bank, when available.
   5. Fallback: credits → Ingresos; debits → Otros, flagged for review.
 
 The sign of the amount always matters: a debit is never "Ingresos", and a

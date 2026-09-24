@@ -21,3 +21,12 @@ services:
         value: eu-west-1
       - key: S3_BUCKET_NAME
         sync: false
+      # Bank connection (see DEPLOY.md → Enable Banking)
+      - key: PUBLIC_URL
+        sync: false          # e.g. https://gastos-web.onrender.com
+      - key: ENABLE_BANKING_APP_ID
+        sync: false
+      - key: ENABLE_BANKING_PRIVATE_KEY
+        sync: false
+      - key: SYNC_TOKEN
+        generateValue: true  # copy it into the GitHub secret of the same name

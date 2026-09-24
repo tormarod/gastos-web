@@ -3,6 +3,7 @@ Load and save the app's documents.
 
   ledger.json    every movement (services.ledger)
   rules.json     {"version": 2, "rules": [{"pattern", "category", "created_at"}]}
+  settings.json  bank connection state (services.bank_sync)
   statements/    raw Excel files, archived on upload
 
 Updates use optimistic concurrency: read with ETag, change, write only if
@@ -27,6 +28,7 @@ log = logging.getLogger(__name__)
 
 LEDGER_KEY = "ledger.json"
 RULES_KEY = "rules.json"
+SETTINGS_KEY = "settings.json"
 LEGACY_DATA_KEY = "data.json"
 LEGACY_RULES_KEY = "merchant_rules.json"
 STATEMENTS_PREFIX = "statements/"
@@ -122,6 +124,21 @@ def load_ledger() -> lg.Ledger:
 def update_ledger(fn: Callable[[lg.Ledger], T]) -> T:
     """Apply fn to the ledger (mutating it) and save. fn may run more than once."""
     return _update(LEDGER_KEY, _read_ledger, fn)
+
+
+# ── Settings ─────────────────────────────────────────────────────────────────
+
+def _read_settings() -> tuple[dict[str, Any], str | None]:
+    doc, etag = read_json(SETTINGS_KEY)
+    return (doc if doc is not None else {"version": 1}), etag
+
+
+def load_settings() -> dict[str, Any]:
+    return _read_settings()[0]
+
+
+def update_settings(fn: Callable[[dict[str, Any]], T]) -> T:
+    return _update(SETTINGS_KEY, _read_settings, fn)
 
 
 # ── Raw statements ───────────────────────────────────────────────────────────
