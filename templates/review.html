@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Revisar{% endblock %}
+{% block style %}
+  .grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .section-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: .1em;
+                   color: var(--text-muted); font-weight: 700; margin-bottom: 14px; }
+
+  .search { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .search input { flex: 1; min-width: 200px; }
+
+  .group {
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 10px; background: var(--surface2);
+  }
+  .group-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 2px; }
+  .group-name { font-size: 0.86rem; font-weight: 700; color: var(--text); word-break: break-word; }
+  .group-total { font-size: 0.82rem; color: var(--orange); font-weight: 700; }
+  .group-example { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.74rem; color: var(--text-muted);
+                   margin-bottom: 8px; word-break: break-word; }
+
+  .rule-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .rule-form input[type=text] { flex: 1; min-width: 140px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; }
+
+  details summary { list-style: none; cursor: pointer; font-size: 0.76rem; color: var(--text-muted);
+                    display: inline-flex; gap: 6px; align-items: center; }
+  details summary::-webkit-details-marker { display: none; }
+  details summary .chevron { font-size: 0.65rem; transition: transform .2s; display: inline-block; }
+  details[open] summary .chevron { transform: rotate(90deg); }
+
+  .tx-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; margin-top: 8px; }
+  .tx-table th { text-align: left; padding: 5px 6px; color: var(--text-muted); font-weight: 600; font-size: 0.7rem;
+                 text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+  .tx-table td { padding: 5px 6px; border-bottom: 1px solid #2e324818; vertical-align: middle; }
+  .tx-table tr:last-child td { border-bottom: none; }
+  .tx-concept { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tx-form { display: flex; gap: 6px; align-items: center; }
+  .tx-form select { padding: 4px 8px; font-size: 0.75rem; }
+  .tx-form .btn { padding: 4px 10px; font-size: 0.72rem; }
+  .manual { color: var(--accent); font-size: 0.68rem; font-weight: 700; }
+
+  .rule-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 14px; border-radius: 8px; background: var(--surface2);
+    border: 1px solid var(--border); margin-bottom: 8px;
+  }
+  .rule-pattern { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; color: var(--text); word-break: break-word; }
+  .rule-cat { font-size: 0.8rem; color: var(--accent); font-weight: 600; }
+  .rule-row .btn { padding: 3px 8px; font-size: 0.72rem; flex-shrink: 0; }
+
+  .tip { background: #6c63ff0c; border: 1px solid #6c63ff22; border-radius: 8px; padding: 10px 14px;
+         font-size: 0.78rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px; }
+  .tip b { color: var(--text); }
+  .empty { color: var(--text-muted); font-size: 0.88rem; padding: 20px 0; text-align: center; }
+  .migration { font-size: 0.8rem; line-height: 1.6; }
+  .migration ul { margin: 6px 0 0 18px; }
+{% endblock %}
+
+{% block content %}
+<h1>🏷️ Revisar</h1>
+<div class="sub">Lo que la app no ha sabido categorizar sola. Al guardar una regla se aplica a todos los movimientos, pasados y futuros.</div>
+
+{% set changes = '1 movimiento cambió' if changed == 1 else changed ~ ' movimientos cambiaron' %}
+{% if ok == 'regla' %}<div class="alert success">✅ Regla guardada: {{ changes }} de categoría.</div>
+{% elif ok == 'movimiento' %}<div class="alert success">✅ Movimiento actualizado.</div>
+{% elif ok == 'borrada' %}<div class="alert success">Regla eliminada: {{ changes }} de categoría.</div>
+{% elif ok == 'corto' %}<div class="alert error">El patrón es demasiado corto.</div>
+{% elif ok == 'no_encontrado' %}<div class="alert error">No se ha encontrado ese movimiento.</div>
+{% endif %}
+
+<div class="grid">
+  <div>
+    <form class="search" method="get" action="/revisar" role="search">
+      <input type="search" id="q" name="q" value="{{ q }}" placeholder="Buscar cualquier comercio o concepto (p. ej. zara)" aria-label="Buscar">
+      <button class="btn" type="submit">Buscar</button>
+      {% if q %}<a class="btn" href="/revisar">Ver pendientes</a>{% endif %}
+    </form>
+
+    <div class="section-title">
+      {% if q %}Resultados para «{{ q }}»{% else %}Pendientes de revisar{% endif %}
+    </div>
+
+    {% if groups %}
+    {% if not q %}
+    <div class="tip">
+      <b>Cómo funciona:</b> ajusta el patrón para que identifique al comercio (p. ej. «STARBUCKS» en vez del texto completo),
+      elige la categoría y guarda. Para cambiar un solo movimiento, despliega la lista y asígnalo ahí.
+    </div>
+    {% endif %}
+
+    {% for g in groups %}
+    <div class="group">
+      <div class="group-head">
+        <div class="group-name">{{ g.merchant }}</div>
+        <div class="group-total num">{{ g.total | eur }}</div>
+      </div>
+      <div class="group-example">{{ g.example }}</div>
+      <details>
+        <summary><span class="chevron">▶</span>{{ g.count }} movimiento{{ 's' if g.count != 1 }} · ahora en <span class="pill{{ ' warn' if g.category == 'Otros' }}">{{ g.category }}</span></summary>
+        <table class="tx-table">
+          <thead><tr><th>Fecha</th><th>Concepto</th><th style="text-align:right">Importe</th><th>Categoría</th></tr></thead>
+          <tbody>
+            {% for tx in g.transactions %}
+            <tr>
+              <td class="num">{{ tx.date | short_date }}</td>
+              <td class="tx-concept" title="{{ tx.concept }}">{{ tx.concept }}</td>
+              <td class="num {{ 'amount-pos' if tx.amount > 0 else 'amount-neg' }}" style="text-align:right">{{ tx.amount | eur }}</td>
+              <td>
+                <form method="post" action="/revisar/movimiento" class="tx-form">
+                  <input type="hidden" name="tx_id" value="{{ tx.id }}">
+                  <input type="hidden" name="q" value="{{ q }}">
+                  <select name="category" aria-label="Categoría">
+                    {% for c in categories %}<option value="{{ c }}" {{ 'selected' if c == tx.category }}>{{ c }}</option>{% endfor %}
+                  </select>
+                  <button class="btn" type="submit">Asignar</button>
+                  {% if tx.category_source == 'user' %}<span class="manual" title="Asignado a mano">✎</span>{% endif %}
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+      <form method="post" action="/revisar/regla" class="rule-form">
+        <input type="hidden" name="q" value="{{ q }}">
+        <input type="text" name="pattern" value="{{ g.pattern }}" required minlength="2"
+               aria-label="Patrón" title="Texto que identifica a este comercio">
+        <select name="category" required aria-label="Categoría">
+          <option value="" disabled {{ 'selected' if g.category == 'Otros' }}>Elige categoría…</option>
+          {% for c in categories %}<option value="{{ c }}" {{ 'selected' if c == g.category and c != 'Otros' }}>{{ c }}</option>{% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Guardar regla</button>
+      </form>
+    </div>
+    {% endfor %}
+
+    {% else %}
+    <div class="empty">
+      {% if q %}No hay movimientos que contengan «{{ q }}».
+      {% else %}✅ No hay nada pendiente. Todos los movimientos tienen categoría.{% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="card" style="margin-bottom:20px">
+      <div class="section-title">Reglas guardadas ({{ rules|length }})</div>
+      {% for rule in rules %}
+      <div class="rule-row">
+        <div>
+          <div class="rule-pattern">{{ rule.pattern }}</div>
+          <div><span class="muted">→</span> <span class="rule-cat">{{ rule.category }}</span></div>
+        </div>
+        <form method="post" action="/revisar/regla/borrar" data-confirm="¿Eliminar la regla «{{ rule.pattern }}»?">
+          <input type="hidden" name="pattern" value="{{ rule.pattern }}">
+          <button class="btn btn-danger" type="submit">Eliminar</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="empty" style="padding:12px 0">Aún no hay reglas guardadas.</div>
+      {% endfor %}
+    </div>
+
+    {% if migration %}
+    <div class="card migration">
+      <div class="section-title">Migración a la nueva versión</div>
+      <p>El {{ migration.migrated_at[:10] | short_date }} se pasaron {{ migration.transactions }} movimientos de {{ migration.months }} meses
+         al nuevo formato, con {{ migration.rules }} reglas y {{ migration.overrides_applied }} correcciones a mano.</p>
+      {% if migration.category_changes %}
+      <p style="margin-top:8px">Con las reglas nuevas cambiaron estas categorías:</p>
+      <ul>{% for change, n in migration.category_changes.items() %}<li>{{ change }}: {{ n }}</li>{% endfor %}</ul>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
