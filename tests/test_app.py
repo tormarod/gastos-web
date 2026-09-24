@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 import main
 from services import repo
 from tests.conftest import ROOT, bbva_row, make_xlsx
-from tests.fakes import FakeBank, configure, eb_transaction
 
 
 @pytest.fixture
@@ -34,7 +33,7 @@ SEPTEMBER = [
 
 def test_pages_require_login():
     c = TestClient(main.app)
-    for path in ("/", "/upload", "/revisar", "/banco", "/api/data"):
+    for path in ("/", "/upload", "/revisar", "/api/data"):
         response = c.get(path, follow_redirects=False)
         assert (response.status_code, response.headers["location"]) == (303, "/login")
 
@@ -63,7 +62,7 @@ def test_upload_import_and_dashboard(client):
     page = client.get("/")
     assert page.status_code == 200
     assert "Plan Financiero 2026" in page.text
-    assert "<script>alert(1)</script>" not in page.text  # bank text is escaped everywhere
+    assert "<script>alert(1)</script>" not in page.text  # statement text is escaped everywhere
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page.text
     assert "<b>1</b> movimiento que la app no ha sabido categorizar" in page.text
 
@@ -121,83 +120,6 @@ def test_security_headers(client):
     response = client.get("/")
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["x-content-type-options"] == "nosniff"
-
-
-def test_bank_page_without_configuration(client):
-    page = client.get("/banco")
-    assert "Sin configurar" in page.text and "http://testserver/banco/callback" in page.text
-
-
-def test_connect_bank_end_to_end(client, monkeypatch):
-    fake = FakeBank()
-    fake.transactions = [eb_transaction("R1", "2026-09-20", -45.3, "MERCADONA"), eb_transaction("R2", "2026-09-21", -3, "COSA RARA")]
-    configure(monkeypatch, fake)
-
-    start = client.post("/banco/conectar", follow_redirects=False)
-    assert (start.status_code, start.headers["location"]) == (303, "https://bank.example/login?session=abc")
-    state = repo.load_settings()["bank"]["pending"]["state"]
-
-    denied = client.get("/banco/callback", params={"error": "access_denied"}, follow_redirects=False)
-    assert "error=" in denied.headers["location"]
-
-    done = client.get("/banco/callback", params={"code": "c1", "state": state}, follow_redirects=False)
-    assert done.headers["location"].startswith("/banco?ok=conectado&added=2")
-    page = client.get("/banco")
-    assert "Conectado" in page.text and "····1234" in page.text
-
-    fake.transactions.append(eb_transaction("R3", "2026-09-22", -8, "NETFLIX.COM"))
-    again = client.post("/banco/sincronizar", follow_redirects=False)
-    assert again.headers["location"].startswith("/banco?ok=sync&added=1")
-    assert fake.calls[-1][1]["psu"]["Psu-Ip-Address"]
-
-    client.post("/banco/desconectar")
-    assert "No conectado" in client.get("/banco").text
-
-
-def test_api_sync_needs_the_token(client, monkeypatch):
-    assert client.post("/api/sync").status_code == 401
-    assert client.post("/api/sync", headers={"Authorization": "Bearer nope"}).status_code == 401
-    auth = {"Authorization": "Bearer test-sync-token"}
-    assert client.post("/api/sync", headers=auth).json() == {"status": "not_configured"}
-
-    fake = FakeBank()
-    configure(monkeypatch, fake)
-    assert client.post("/api/sync", headers=auth).json()["status"] == "not_connected"
-
-
-def test_api_sync_returns_counts_only(client, monkeypatch):
-    fake = FakeBank()
-    fake.transactions = [eb_transaction("R1", "2026-09-20", -45.3, "MERCADONA")]
-    configure(monkeypatch, fake)
-    client.post("/banco/conectar")
-    state = repo.load_settings()["bank"]["pending"]["state"]
-    client.get("/banco/callback", params={"code": "c1", "state": state})
-
-    def reset_attempt(s):
-        s["bank"]["last_attempt_at"] = "2026-01-01T00:00:00+00:00"
-
-    repo.update_settings(reset_attempt)
-    body = client.post("/api/sync", headers={"Authorization": "Bearer test-sync-token"}).json()
-    assert body == {"status": "ok", "added": 0, "duplicates": 1, "needs_review": 0, "fetched": 1}
-
-
-def test_opening_the_app_syncs_when_data_is_old(client, monkeypatch):
-    fake = FakeBank()
-    configure(monkeypatch, fake)
-    client.post("/banco/conectar")
-    state = repo.load_settings()["bank"]["pending"]["state"]
-    client.get("/banco/callback", params={"code": "c1", "state": state})
-    calls = len(fake.calls)
-
-    client.get("/")
-    assert len(fake.calls) == calls  # just synced
-
-    def make_old(s):
-        s["bank"]["last_attempt_at"] = "2026-01-01T00:00:00+00:00"
-
-    repo.update_settings(make_old)
-    client.get("/")
-    assert fake.calls[-1][0] == "transactions"
 
 
 def test_production_refuses_to_start_without_secrets():

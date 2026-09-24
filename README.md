@@ -1,8 +1,8 @@
 # 💰 Gastos Web — Rodrigo & Rocío
 
 Personal finance dashboard for tracking shared expenses and savings goals.
-Reads the shared BBVA account automatically every morning (or from Excel exports),
-categorises every movement and shows it as an interactive dashboard.
+Imports BBVA Excel exports of the shared account, categorises every movement
+and shows it as an interactive dashboard.
 
 ## Stack
 
@@ -11,8 +11,7 @@ categorises every movement and shows it as an interactive dashboard.
 | Backend | Python 3.11 + FastAPI |
 | Templates | Jinja2 + Chart.js |
 | Storage | AWS S3 (JSON documents + archived statements), conditional writes |
-| Bank data | Enable Banking (PSD2, read only) + BBVA Excel as fallback |
-| Daily sync | GitHub Actions cron → `POST /api/sync` |
+| Bank data | BBVA Excel exports (.xlsx) |
 | Auth | Cookie session with signed token (shared password) |
 | Hosting | Render.com (free tier) |
 
@@ -20,14 +19,15 @@ No database. All financial data lives in a few JSON files in S3.
 
 ## Features
 
-- **Automatic bank sync** — connects to the shared BBVA account through Enable Banking and imports new movements every morning; warns before the bank consent expires
 - **Excel import** — drop one or several BBVA `.xlsx` exports; no month to pick, overlapping statements never duplicate movements
-- **Categorisation** — sign-aware rules (a debit is never income, refunds reduce their category), whole-word keyword matching, the bank's merchant code when available, and rules you teach it
+- **Categorisation** — sign-aware rules (a debit is never income, refunds reduce their category), whole-word keyword matching, and rules you teach it
 - **Revisar** — only what the app couldn't categorise, grouped by merchant; one rule fixes every past and future movement; search to correct anything
 - **Dashboard** — KPIs, monthly trend charts, category breakdown with drill-down, latest movements
 - **Dynamic insights** — spending spikes, streaks, year-end savings projection
 - **Savings goal tracker** — progress bar towards the €2,400/year shared fund
 - **Secure** — password-protected with login rate limiting, HTTPS-only cookies in production, same-origin form checks, least-privilege S3 access
+
+Connecting the bank directly (Enable Banking, PSD2) is planned for a later version.
 
 ## Local development
 
@@ -53,7 +53,7 @@ pytest
 
 ## Deployment
 
-See [`DEPLOY.md`](DEPLOY.md) for the full step-by-step guide (S3, Render, Enable Banking, daily sync).
+See [`DEPLOY.md`](DEPLOY.md) for the full step-by-step guide (S3 and Render).
 
 **Environment variables on Render:**
 
@@ -65,41 +65,33 @@ See [`DEPLOY.md`](DEPLOY.md) for the full step-by-step guide (S3, Render, Enable
 | `AWS_SECRET_ACCESS_KEY` | IAM user secret |
 | `AWS_REGION` | e.g. `eu-west-1` |
 | `S3_BUCKET_NAME` | e.g. `gastos-rodrigo-rocio` |
-| `PUBLIC_URL` | e.g. `https://gastos-web.onrender.com` (bank redirect) |
-| `ENABLE_BANKING_APP_ID` | Enable Banking application id |
-| `ENABLE_BANKING_PRIVATE_KEY` | Contents of the application's `.pem` key |
-| `SYNC_TOKEN` | Shared with the GitHub Actions cron that calls `/api/sync` |
 
-## Daily workflow
+## Monthly workflow
 
-Nothing, most days: movements arrive by themselves. When the **Revisar** badge shows a number,
-open it and assign a category (or save a rule). About every six months, renew the bank consent
-from **Banco** when the app asks.
+1. Log in to BBVA online → download the shared account's movements as **Excel (.xlsx)**. Several months at once is fine.
+2. Open the app → **Subir extracto** → drop the file(s). No month to pick; movements already stored are skipped.
+3. When the **Revisar** badge shows a number, open it and assign a category (or save a rule).
 
 ## Project structure
 
 ```
 gastos-web/
-├── main.py                  # FastAPI app — routes, auth, security, upload, review, bank, API
+├── main.py                  # FastAPI app — routes, auth, security, upload, review, API
 ├── services/
-│   ├── categorizer.py       # Rules: BBVA concept (+ sign, counterparty, MCC) → category
+│   ├── categorizer.py       # Rules: BBVA concept (+ amount sign) → category
 │   ├── ledger.py            # Movements: ids, import & dedupe, monthly summaries, review groups
 │   ├── parser.py            # BBVA XLSX parser (header-row auto-detection)
 │   ├── repo.py              # Load/save ledger, rules, settings; v1 → v2 migration on first read
 │   ├── migration.py         # data.json + merchant_rules.json → ledger.json + rules.json
 │   ├── storage.py           # S3 (or local folder) with ETag conditional writes
-│   ├── enable_banking.py    # Enable Banking API client (JWT, auth, sessions, transactions)
-│   ├── bank_sync.py         # Connect, sync and consent status for the shared account
 │   └── insights.py          # Dynamic insight cards
 ├── templates/
-│   ├── base.html            # Layout, navigation, bank alerts
+│   ├── base.html            # Layout and navigation
 │   ├── login.html
 │   ├── dashboard.html
 │   ├── review.html          # Revisar: uncategorised movements, search, rules
-│   ├── upload.html          # Excel import and saved months
-│   └── bank.html            # Bank connection
-├── tests/                   # pytest suite (no network or AWS needed)
-└── .github/workflows/sync.yml  # Daily sync
+│   └── upload.html          # Excel import and saved months
+└── tests/                   # pytest suite (no network or AWS needed)
 ```
 
 ## Data in S3
@@ -108,7 +100,6 @@ gastos-web/
 |---|---|
 | `ledger.json` | Every movement once: date, amount, concept, category and where it came from |
 | `rules.json` | Your rules: text pattern → category |
-| `settings.json` | Bank connection state |
 | `statements/` | Uploaded Excel files |
 | `data.json`, `merchant_rules.json` | Version 1 files, kept as a backup after the migration |
 
@@ -119,8 +110,7 @@ Each movement gets the first answer from:
 1. **Your rules** (from Revisar) — the longest matching pattern wins.
 2. **Income keywords**, credits only — NÓMINA, TRANSFERENCIA, BIZUM…
 3. **Built-in keywords** in [`services/categorizer.py`](services/categorizer.py) — whole words, the longest keyword wins (ZARA HOME beats ZARA).
-4. **Merchant category code** sent by the bank, when there is one.
-5. Otherwise credits are income and debits go to **Revisar**.
+4. Otherwise credits are income and debits go to **Revisar**.
 
 | Category | Keywords matched (examples) |
 |---|---|

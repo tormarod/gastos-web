@@ -8,18 +8,17 @@ from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Annotated, Any
 from urllib.parse import urlencode, urlparse
-from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, Cookie, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi import Cookie, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 load_dotenv()
 
-from services import bank_sync, enable_banking, insights, parser, repo  # noqa: E402
+from services import insights, parser, repo  # noqa: E402
 from services import categorizer as cat  # noqa: E402
 from services import ledger as lg  # noqa: E402
 
@@ -42,14 +41,11 @@ def _secret(name: str, dev_default: str) -> str:
 
 SECRET_KEY = _secret("SECRET_KEY", "dev-secret-change-me")
 APP_PASSWORD = _secret("APP_PASSWORD", "cambiame")
-SYNC_TOKEN = os.environ.get("SYNC_TOKEN", "")
-PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")
 COOKIE_NAME = "gastos_session"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_SECONDS = 15 * 60
-MADRID = ZoneInfo("Europe/Madrid")
 
 app = FastAPI(title="Gastos Web", docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -89,10 +85,6 @@ def _month_label(value: str | None) -> str:
         return value
 
 
-def _local(value: datetime | None, fmt: str = "%d/%m %H:%M") -> str:
-    return value.astimezone(MADRID).strftime(fmt) if value else "—"
-
-
 def _short_date(value: str | None) -> str:
     """'2026-09-20' → '20/09/2026'"""
     if not value or len(value) < 10:
@@ -102,7 +94,6 @@ def _short_date(value: str | None) -> str:
 
 templates.env.filters["eur"] = _eur
 templates.env.filters["month_label"] = _month_label
-templates.env.filters["local"] = _local
 templates.env.filters["short_date"] = _short_date
 templates.env.globals["categories"] = cat.CATEGORIES
 
@@ -113,16 +104,10 @@ def _render(
     context: dict[str, Any] | None = None,
     *,
     ledger: lg.Ledger | None = None,
-    settings: dict[str, Any] | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
     ledger = ledger if ledger is not None else repo.load_ledger()
-    settings = settings if settings is not None else repo.load_settings()
-    base = {
-        "page": name,
-        "review_count": lg.review_count(ledger),
-        "bank": bank_sync.status(settings, _now()),
-    }
+    base = {"page": name, "review_count": lg.review_count(ledger)}
     return templates.TemplateResponse(request, name, {**base, **(context or {})}, status_code=status_code)
 
 
@@ -179,7 +164,7 @@ def _recent_failures(key: str, now: float) -> int:
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
     # Forms must be posted from this site (defence in depth on top of SameSite cookies).
-    if request.method == "POST" and not request.url.path.startswith("/api/"):
+    if request.method == "POST":
         source = request.headers.get("origin") or request.headers.get("referer")
         if source is not None:
             host = urlparse(source).netloc
@@ -304,22 +289,11 @@ def _dashboard_context(ledger: lg.Ledger) -> dict[str, Any]:
     }
 
 
-def _sync_in_background() -> None:
-    try:
-        bank_sync.sync(_now())
-    except Exception:  # never let a background sync take the app down
-        log.exception("Background bank sync failed")
-
-
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, background: BackgroundTasks, session: SessionCookie = None):
+def dashboard(request: Request, session: SessionCookie = None):
     _require_auth(session)
     ledger = repo.load_ledger()
-    settings = repo.load_settings()
-    # Fallback for the daily cron: refresh when someone opens the app and data is old.
-    if enable_banking.is_configured() and bank_sync.is_stale(settings, _now()):
-        background.add_task(_sync_in_background)
-    return _render(request, "dashboard.html", _dashboard_context(ledger), ledger=ledger, settings=settings)
+    return _render(request, "dashboard.html", _dashboard_context(ledger), ledger=ledger)
 
 
 # ── Upload ───────────────────────────────────────────────────────────────────
@@ -480,115 +454,7 @@ def delete_rule(pattern: Annotated[str, Form()], session: SessionCookie = None):
     return _redirect("/revisar", ok="borrada", n=changed)
 
 
-# ── Bank connection ──────────────────────────────────────────────────────────
-
-def _callback_url(request: Request) -> str:
-    if PUBLIC_URL:
-        return f"{PUBLIC_URL}/banco/callback"
-    url = str(request.url_for("bank_callback"))
-    if request.headers.get("x-forwarded-proto") == "https" and url.startswith("http://"):
-        url = "https://" + url[len("http://"):]
-    return url
-
-
-def _psu_headers(request: Request) -> dict[str, str]:
-    return {
-        "Psu-Ip-Address": _client_ip(request),
-        "Psu-User-Agent": request.headers.get("user-agent", "")[:250],
-    }
-
-
-@app.get("/banco", response_class=HTMLResponse)
-def bank_page(request: Request, session: SessionCookie = None):
-    _require_auth(session)
-    params = request.query_params
-    return _render(request, "bank.html", {
-        "ok": params.get("ok"),
-        "error": params.get("error"),
-        "sync": {k: _int(params.get(k)) for k in ("added", "dup", "review")},
-        "callback_url": _callback_url(request),
-    })
-
-
-@app.post("/banco/conectar")
-def bank_connect(request: Request, session: SessionCookie = None):
-    _require_auth(session)
-    try:
-        url = bank_sync.start(_callback_url(request), _now())
-    except Exception as exc:
-        log.warning("Could not start bank authorisation: %s", exc)
-        return _redirect("/banco", error=f"No se pudo iniciar la conexión: {exc}")
-    return RedirectResponse(url, status_code=303)
-
-
-@app.get("/banco/callback", name="bank_callback")
-def bank_callback(
-    request: Request,
-    code: str = "",
-    state: str = "",
-    error: str = "",
-    error_description: str = "",
-    session: SessionCookie = None,
-):
-    _require_auth(session)
-    if error or not code:
-        return _redirect("/banco", error=f"El banco no autorizó el acceso: {error_description or error or 'sin código'}")
-    try:
-        bank_sync.complete(code, state, _now())
-    except ValueError as exc:
-        return _redirect("/banco", error=str(exc))
-    except Exception as exc:
-        log.warning("Could not complete bank authorisation: %s", exc)
-        return _redirect("/banco", error=f"No se pudo completar la conexión: {exc}")
-    # Import right away so the data is there when they come back; with several
-    # accounts this waits until they choose the shared one.
-    result = bank_sync.sync(_now(), force=True, psu_headers=_psu_headers(request))
-    failed = result.status not in ("ok", "not_connected")
-    return _redirect("/banco", ok="conectado", added=result.added, dup=result.duplicates,
-                     review=result.needs_review, error=result.message if failed else None)
-
-
-@app.post("/banco/cuenta")
-def bank_choose_account(request: Request, uid: Annotated[str, Form()], session: SessionCookie = None):
-    _require_auth(session)
-    try:
-        bank_sync.choose_account(uid)
-    except ValueError as exc:
-        return _redirect("/banco", error=str(exc))
-    result = bank_sync.sync(_now(), force=True, psu_headers=_psu_headers(request))
-    return _redirect("/banco", ok="sync", added=result.added, dup=result.duplicates,
-                     review=result.needs_review, error=result.message if result.status != "ok" else None)
-
-
-@app.post("/banco/sincronizar")
-def bank_sync_now(request: Request, session: SessionCookie = None):
-    _require_auth(session)
-    result = bank_sync.sync(_now(), force=True, psu_headers=_psu_headers(request))
-    if result.status != "ok":
-        return _redirect("/banco", error=result.message or "No se pudo sincronizar.")
-    return _redirect("/banco", ok="sync", added=result.added, dup=result.duplicates, review=result.needs_review)
-
-
-@app.post("/banco/desconectar")
-def bank_disconnect(session: SessionCookie = None):
-    _require_auth(session)
-    bank_sync.disconnect()
-    return _redirect("/banco", ok="desconectado")
-
-
 # ── API (JSON) ───────────────────────────────────────────────────────────────
-
-@app.post("/api/sync")
-def api_sync(request: Request):
-    """Called by the daily cron with `Authorization: Bearer <SYNC_TOKEN>`. Returns counts only."""
-    supplied = request.headers.get("authorization", "")
-    if not SYNC_TOKEN or not hmac.compare_digest(supplied.encode(), f"Bearer {SYNC_TOKEN}".encode()):
-        return JSONResponse({"detail": "No autorizado."}, status_code=401)
-    if not enable_banking.is_configured():
-        return {"status": "not_configured"}
-    result = bank_sync.sync(_now())
-    return {k: v for k, v in result.as_dict().items() if k != "message" or result.status != "ok"}
-
 
 @app.get("/api/data")
 def api_data(session: SessionCookie = None):

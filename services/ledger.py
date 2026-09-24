@@ -14,10 +14,11 @@ S3 `ledger.json`:
   "meta": {}
 }
 
-Ids start with the source: "x:" Excel import, "b:" bank sync. The same
-movement arriving under another id (an Excel upload and the bank sync, or a
-bank that renumbers after reconnecting) is detected and kept once; the
-second id is remembered in "alt_ids" so it is skipped next time.
+Ids start with the source: "x:" for Excel imports; other sources (such as
+a future bank feed) use their own prefix. The same movement arriving under
+another id (from another source, or from a source that renumbers) is
+detected and kept once; the second id is remembered in "alt_ids" so it is
+skipped next time.
 
 Months are not stored: they are computed from the movement dates.
 """
@@ -238,9 +239,9 @@ def _match_existing(
     Pair new movements with stored ones that are the same movement under a
     different id. Returns {index in fresh: stored movement}.
 
-    - From another source (Excel vs bank): same account and amount, dates at
+    - From another source (e.g. Excel vs a bank feed): same account and amount, dates at
       most MATCH_WINDOW_DAYS apart. Matching balances and closer dates pair first.
-    - From the same source (a bank that changed its ids after reconnecting):
+    - From the same source (e.g. a bank feed that renumbered its ids):
       same date, amount and concept, and balances not contradicting.
 
     Stored movements already seen by id in this batch (`claimed`) are not

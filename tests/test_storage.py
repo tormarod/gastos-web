@@ -22,7 +22,7 @@ def test_local_backend_conditional_writes(tmp_path):
 
 
 def test_update_retries_when_someone_else_wrote_first(monkeypatch):
-    storage.write_json("settings.json", {"version": 1, "a": 1}, None)
+    storage.write_json("rules.json", {"version": 2, "rules": [{"pattern": "A", "category": "Hogar"}]}, None)
     real_write = repo.write_json
     calls = {"n": 0}
 
@@ -31,13 +31,13 @@ def test_update_retries_when_someone_else_wrote_first(monkeypatch):
         if calls["n"] == 1:  # another process writes between our read and our write
             doc, current = storage.read_json(key)
             assert doc is not None
-            doc["b"] = 2
+            doc["rules"].append({"pattern": "B", "category": "Hogar"})
             real_write(key, doc, current)
         return real_write(key, data, etag)
 
     monkeypatch.setattr(repo, "write_json", racing_write)
-    repo.update_settings(lambda s: s.__setitem__("c", 3))
-    assert storage.read_json("settings.json")[0] == {"version": 1, "a": 1, "b": 2, "c": 3}
+    repo.update_rules(lambda rules: rules + [{"pattern": "C", "category": "Hogar"}])
+    assert [r["pattern"] for r in repo.load_rules()] == ["A", "B", "C"]
     assert calls["n"] == 2  # first attempt conflicted, second succeeded
 
 
@@ -47,7 +47,7 @@ def test_update_gives_up_after_repeated_conflicts(monkeypatch):
 
     monkeypatch.setattr(repo, "write_json", always_conflict)
     with pytest.raises(RuntimeError, match="otro proceso"):
-        repo.update_settings(lambda s: None)
+        repo.update_rules(lambda rules: rules)
 
 
 @pytest.fixture

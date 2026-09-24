@@ -8,5 +8,4 @@ venv/
 dist/
 .DS_Store
 .data/
-*.pem
 .pytest_cache/

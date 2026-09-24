@@ -2,7 +2,7 @@
 Key/value storage for JSON documents and raw files.
 
 Production uses a private S3 bucket. Writes are conditional on the ETag that
-was read, so two writers (the daily bank sync and someone using the web) can
+was read, so two writers (both of you saving at once, or two open tabs) can
 never silently overwrite each other: the loser gets ConflictError and retries
 with fresh data (see services.repo).
 

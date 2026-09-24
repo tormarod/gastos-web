@@ -19,10 +19,7 @@ os.chdir(ROOT)  # templates/ and static/ are resolved relative to the working di
 os.environ.pop("ENV", None)
 os.environ["APP_PASSWORD"] = "test-password"
 os.environ["SECRET_KEY"] = "test-secret"
-os.environ["SYNC_TOKEN"] = "test-sync-token"
 os.environ["STORAGE_BACKEND"] = "local"
-for name in ("ENABLE_BANKING_APP_ID", "ENABLE_BANKING_PRIVATE_KEY", "ENABLE_BANKING_PRIVATE_KEY_PATH", "PUBLIC_URL"):
-    os.environ.pop(name, None)
 
 
 @pytest.fixture(autouse=True)

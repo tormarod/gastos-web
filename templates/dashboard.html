@@ -120,9 +120,8 @@
 <div class="empty-state">
   <div class="icon">📂</div>
   <h2>Aún no hay datos</h2>
-  <p>Conecta la cuenta de BBVA para que los movimientos lleguen solos, o sube un extracto en Excel.</p>
-  <a class="btn btn-primary" href="/banco">Conectar el banco →</a>
-  <a class="btn" href="/upload">Subir un extracto</a>
+  <p>Sube tu primer extracto de BBVA en Excel para ver el dashboard.</p>
+  <a class="btn btn-primary" href="/upload">Subir extracto →</a>
 </div>
 
 {% else %}
@@ -135,9 +134,7 @@
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <span class="badge">{{ sorted_months|length }} mes{% if sorted_months|length != 1 %}es{% endif %} de datos</span>
-      {% if bank.state in ('active', 'expiring') and bank.last_sync_at %}
-      <span class="badge ok">{{ bank.bank_name }} al día · {{ bank.last_sync_at | local }}</span>
-      {% elif last_date %}
+      {% if last_date %}
       <span class="badge ok">Último movimiento {{ last_date | short_date }}</span>
       {% endif %}
     </div>
