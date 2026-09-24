@@ -4,7 +4,7 @@ Help the user get a month's movements into the app and check Inicio and Análisi
    - Log in to bbva.es → Cuentas → the shared account → download the movements as **Excel (.xlsx)**. Several months at once is fine.
 
 2. **Upload to the app**
-   - Open the app → **Subir extracto** → drop the file(s) → **Importar**. No month to choose; movements already stored are skipped.
+   - Open the app → **Añadir** → **Extracto del banco** → drop the file(s) → **Importar**. No month to choose; movements already stored are skipped.
 
 3. **Verify**
    - The upload message shows how many movements were new and how many were already there.

@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from collections import defaultdict, deque
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlencode, urlparse
@@ -23,14 +23,20 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 load_dotenv()
 
-from services import analysis, budget, insights, parser, repo
+from services import analysis, budget, cash, insights, parser, repo
 from services import categorizer as cat
 from services import ledger as lg
 
@@ -54,7 +60,9 @@ def _secret(name: str, dev_default: str) -> str:
 SECRET_KEY = _secret("SECRET_KEY", "dev-secret-change-me")
 APP_PASSWORD = _secret("APP_PASSWORD", "cambiame")
 COOKIE_NAME = "gastos_session"
-COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
+COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days without opening the app
+SESSION_RENEW_AFTER = 60 * 60 * 24  # a session in use gets a fresh 30 days once a day
+WAKE_UP_WAIT_MS = 4000  # after this long without an answer, the installed app shows the waiting screen
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_SECONDS = 15 * 60
@@ -157,6 +165,8 @@ _SHORT_WORDS = {"LA", "EL", "LO", "AL", "UN", "MI", "SU", "TU"}  # two letters, 
 
 def _nice_name(tx: dict[str, Any]) -> str:
     """The merchant as people write it: 'BAR LA ESQUINA' → 'Bar La Esquina', 'BP' stays."""
+    if cash.is_cash(tx):
+        return tx.get("merchant") or cash.DEFAULT_NAME  # already written by you
     key = tx.get("merchant") or cat.merchant_key(tx.get("concept") or "")
     words = []
     for i, word in enumerate(key.split()):
@@ -173,6 +183,15 @@ def _nice_name(tx: dict[str, Any]) -> str:
 def _tx_anchor(tx_id: str) -> str:
     """A short, URL-safe id for a movement's row (ids can contain ':' and '#')."""
     return "m-" + hashlib.sha1(tx_id.encode()).hexdigest()[:10]
+
+
+def _local_time(value: str | None) -> str:
+    """'2026-09-24T08:42:00+00:00' → '24 sep a las 10:42' (Spanish time)"""
+    try:
+        moment = datetime.fromisoformat(value or "").astimezone(_LOCAL_TZ)
+    except ValueError:
+        return value or "—"
+    return f"{_day_month(moment.date().isoformat())} a las {moment:%H:%M}"
 
 
 def _month_name(value: str | None) -> str:
@@ -201,6 +220,10 @@ templates.env.filters["day_month"] = _day_month
 templates.env.filters["day_label"] = _day_label
 templates.env.filters["nice_name"] = _nice_name
 templates.env.filters["tx_anchor"] = _tx_anchor
+templates.env.filters["local_time"] = _local_time
+templates.env.globals["is_cash"] = cash.is_cash
+templates.env.globals["cash_choices"] = cash.CHOICES
+templates.env.globals["default_cash_name"] = cash.DEFAULT_NAME
 templates.env.globals["categories"] = cat.CATEGORIES
 templates.env.globals["asset_version"] = _asset_version()
 
@@ -234,11 +257,27 @@ def _make_session_token() -> str:
 
 
 def _verify_session(token: str) -> bool:
+    return _session_age(token) is not None
+
+
+def _session_age(token: str) -> float | None:
+    """Seconds since the session was signed, or None if it isn't valid (any more)."""
     try:
-        _signer.loads(token, max_age=COOKIE_MAX_AGE)
-        return True
+        _, signed_at = _signer.loads(token, max_age=COOKIE_MAX_AGE, return_timestamp=True)
     except (BadSignature, SignatureExpired):
-        return False
+        return None
+    return (datetime.now(timezone.utc) - signed_at).total_seconds()
+
+
+def _set_session_cookie(response: Response) -> None:
+    response.set_cookie(
+        COOKIE_NAME,
+        _make_session_token(),
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=IS_PRODUCTION,
+    )
 
 
 def _require_auth(session: str | None) -> None:
@@ -278,6 +317,12 @@ async def security_middleware(request: Request, call_next):
             if source == "null" or (host and host != request.headers.get("host")):
                 return PlainTextResponse("Origen no permitido.", status_code=403)
     response = await call_next(request)
+    # Using the app keeps you logged in: the password is only asked after 30 days without opening it.
+    token = request.cookies.get(COOKIE_NAME)
+    if token and request.url.path not in ("/logout", "/login") and "set-cookie" not in response.headers:
+        age = _session_age(token)
+        if age is not None and age > SESSION_RENEW_AFTER:
+            _set_session_cookie(response)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
@@ -317,14 +362,7 @@ def login(request: Request, password: Annotated[str, Form()]):
         )
     _login_failures.pop(ip, None)
     response = RedirectResponse("/", status_code=303)
-    response.set_cookie(
-        COOKIE_NAME,
-        _make_session_token(),
-        max_age=COOKIE_MAX_AGE,
-        httponly=True,
-        samesite="lax",
-        secure=IS_PRODUCTION,
-    )
+    _set_session_cookie(response)
     return response
 
 
@@ -345,7 +383,8 @@ def home(request: Request, mes: str | None = None, session: SessionCookie = None
     months = lg.month_summaries(ledger)
     today = _today()
     month = budget.pick_month(mes, months, today)
-    view = budget.month_overview(months, month, settings, today, lg.last_date(ledger))
+    # cash written down today doesn't mean the bank data is up to date
+    view = budget.month_overview(months, month, settings, today, lg.bank_last_date(ledger))
     return _render(request, "home.html", {"view": view, "has_data": bool(months)}, ledger=ledger)
 
 
@@ -630,9 +669,12 @@ def movements_page(
         if not groups or groups[-1]["date"] != day:
             groups.append({"date": day, "transactions": []})
         groups[-1]["transactions"].append(tx)
-    totals = lg.summarize(found)
+    covered = cash.cover(ledger["transactions"])
+    totals = lg.summarize(found, covered)
     params = request.query_params
     return _render(request, "movements.html", {
+        "covered": covered,
+        "today": _today().isoformat(),
         "has_data": newest is not None or bool(ledger["transactions"]),
         "filters": filters,
         "month": month,
@@ -661,8 +703,17 @@ def movement_category(
     _require_auth(session)
     _valid_category(category)
     filters = _clean_filters(q, mes, category_filter)
-    found = repo.update_ledger(lambda ledger: lg.set_category(ledger, tx_id, category) is not None)
-    if not found:
+
+    def change(ledger: lg.Ledger) -> bool:
+        tx = lg.find(ledger, tx_id)
+        if tx is None:
+            return False
+        if cash.is_cash(tx) and category not in cash.CHOICES:
+            raise HTTPException(status_code=400, detail="Categoría no válida para un gasto en efectivo.")
+        lg.set_category(ledger, tx_id, category)
+        return True
+
+    if not repo.update_ledger(change):
         return _back_to_movements(filters, ok="no_encontrado")
     return _back_to_movements(filters, ok="categoria", ver=_tx_anchor(tx_id))
 
@@ -699,6 +750,135 @@ def movement_automatic(
     if not found:
         return _back_to_movements(filters, ok="no_encontrado")
     return _back_to_movements(filters, ok="automatica", ver=_tx_anchor(tx_id))
+
+
+@app.post("/movimientos/efectivo")
+def movement_cash(
+    tx_id: Annotated[str, Form()],
+    importe: Annotated[str, Form()] = "",
+    fecha: Annotated[str, Form()] = "",
+    donde: Annotated[str, Form()] = "",
+    category: Annotated[str, Form()] = "",
+    q: Annotated[str, Form()] = "",
+    mes: Annotated[str, Form()] = "",
+    category_filter: Annotated[str, Form(alias="cat")] = "",
+    session: SessionCookie = None,
+):
+    _require_auth(session)
+    filters = _clean_filters(q, mes, category_filter)
+    anchor = _tx_anchor(tx_id)
+    try:
+        amount = _cash_amount(importe)
+        day = cash.parse_day("otro", fecha, _today()).isoformat()
+    except ValueError:
+        return _back_to_movements(filters, ok="efectivo_mal", ver=anchor)
+    if category not in cash.CHOICES:
+        return _back_to_movements(filters, ok="efectivo_mal", ver=anchor)
+    place = cash.clean_place(donde)
+    found = repo.update_ledger(lambda ledger: lg.update_cash(
+        ledger, tx_id, amount=amount, day=day, place=place, category=category) is not None)
+    if not found:
+        return _back_to_movements(filters, ok="no_encontrado")
+    return _back_to_movements(filters, ok="efectivo", ver=anchor)
+
+
+@app.post("/movimientos/borrar")
+def movement_delete(
+    tx_id: Annotated[str, Form()],
+    q: Annotated[str, Form()] = "",
+    mes: Annotated[str, Form()] = "",
+    category_filter: Annotated[str, Form(alias="cat")] = "",
+    session: SessionCookie = None,
+):
+    _require_auth(session)
+    filters = _clean_filters(q, mes, category_filter)
+    removed = repo.update_ledger(lambda ledger: lg.delete_cash(ledger, tx_id) is not None)
+    return _back_to_movements(filters, ok="borrado" if removed else "no_encontrado")
+
+
+# ── Add: cash written down by hand ───────────────────────────────────────────
+
+def _cash_amount(text: str) -> float:
+    """'12,50' → 12.5; ValueError unless it is more than 0 and at most cash.MAX_AMOUNT."""
+    amount = budget.parse_amount(text, cash.MAX_AMOUNT)
+    if not amount:
+        raise ValueError(text)
+    return amount
+
+
+def _add_context(ledger: lg.Ledger, today: date, form: dict[str, str] | None = None) -> dict[str, Any]:
+    txs = ledger["transactions"]
+    first, rest = cash.choices(txs)
+    form = form or {}
+    return {
+        "first_choices": first,
+        "more_choices": rest,
+        "in_hand": cash.in_hand(txs, cash.cover(txs), today),
+        "recent": cash.recent(txs),
+        "today": today.isoformat(),
+        "yesterday": (today - timedelta(days=1)).isoformat(),
+        "form": form,
+        "error": None,
+        "saved": None,
+    }
+
+
+@app.get("/apuntar", response_class=HTMLResponse)
+def add_page(request: Request, ok: str = "", session: SessionCookie = None):
+    _require_auth(session)
+    ledger = repo.load_ledger()
+    context = _add_context(ledger, _today())
+    saved = lg.find(ledger, ok) if ok else None
+    if saved is not None and cash.is_cash(saved):
+        context["saved"] = saved
+    context["undone"] = ok == "deshecho"
+    context["missing"] = ok == "no_encontrado"
+    return _render(request, "add.html", context, ledger=ledger)
+
+
+@app.post("/apuntar")
+def add_cash(
+    request: Request,
+    importe: Annotated[str, Form()] = "",
+    categoria: Annotated[str, Form()] = "",
+    donde: Annotated[str, Form()] = "",
+    dia: Annotated[str, Form()] = "hoy",
+    fecha: Annotated[str, Form()] = "",
+    session: SessionCookie = None,
+):
+    _require_auth(session)
+    today = _today()
+    form = {"importe": importe[:20], "categoria": categoria, "donde": cash.clean_place(donde),
+            "dia": dia if dia in ("hoy", "ayer", "otro") else "hoy", "fecha": fecha[:10]}
+    error = None
+    amount, day = 0.0, today
+    try:
+        amount = _cash_amount(importe)
+    except ValueError:
+        error = "importe"
+    if error is None and categoria not in cash.CHOICES:
+        error = "categoria"
+    try:
+        day = cash.parse_day(dia, fecha, today)
+    except ValueError:
+        error = error or "dia"
+    if error is not None:
+        ledger = repo.load_ledger()
+        context = _add_context(ledger, today, form)
+        context["error"] = error
+        return _render(request, "add.html", context, ledger=ledger, status_code=422)
+
+    tx = lg.new_cash_expense(amount=amount, category=categoria, day=day.isoformat(),
+                             place=form["donde"], now=repo.now_iso())
+    repo.update_ledger(lambda ledger: lg.add_cash(ledger, tx))
+    return _redirect("/apuntar", ok=tx["id"])
+
+
+@app.post("/apuntar/deshacer")
+def undo_cash(tx_id: Annotated[str, Form()], session: SessionCookie = None):
+    _require_auth(session)
+    removed = repo.update_ledger(lambda ledger: lg.delete_cash(ledger, tx_id) is not None)
+    return _redirect("/apuntar", ok="deshecho" if removed else "no_encontrado")
 
 
 # ── Settings ─────────────────────────────────────────────────────────────────
@@ -796,6 +976,28 @@ def api_data(session: SessionCookie = None):
     _require_auth(session)
     ledger = repo.load_ledger()
     return {"months": {m["month"]: m for m in lg.month_summaries(ledger)}}
+
+
+# ── Installing on the phone (no password: none of this has your data) ────────
+
+@app.get("/manifest.webmanifest")
+def web_manifest():
+    return FileResponse("static/manifest.webmanifest", media_type="application/manifest+json",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/sw.js")
+def service_worker(request: Request):
+    return templates.TemplateResponse(
+        request, "sw.js", {"slow_ms": WAKE_UP_WAIT_MS}, media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/espera", response_class=HTMLResponse)
+def waiting_page(request: Request):
+    icon = Path("static/icons/icon.svg").read_text(encoding="utf-8")
+    return templates.TemplateResponse(request, "wait.html", {"icon_svg": icon}, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/healthz")

@@ -24,6 +24,14 @@
   .tx-amt.in { color: var(--pos); }
   .tx-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .manual { font-size: .75rem; color: var(--muted); }
+  .cash-tag { display: inline-flex; align-items: center; gap: 4px; font-size: .75rem; font-weight: 600; color: var(--muted); }
+  .cash-tag svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .editgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .editgrid label { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; font-weight: 600; color: var(--muted); min-width: 0; }
+  .editgrid input, .editgrid select { width: 100%; min-width: 0; }
+  .editgrid input[type=date] { font: inherit; font-size: .9rem; color: var(--ink); padding: 7px 10px; background: var(--field); border: 1px solid var(--line); border-radius: 9px; }
+  .editgrid .btn { grid-column: 1 / -1; }
+  @media (max-width: 380px) { .editgrid { grid-template-columns: 1fr; } }
   .noteline { font-size: .85rem; color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
   .noteline svg { width: 12px; height: 12px; flex: none; position: relative; top: 1px; fill: none; stroke: currentColor; stroke-width: 2; }
   .tx-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -34,6 +42,7 @@
   .formrow select, .formrow input { width: 100%; min-width: 0; }
   .links { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; font-size: .88rem; }
   .links a { font-weight: 600; }
+  .linkbtn.danger { color: var(--neg); }
   .linkbtn { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--pen); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
   .more { margin-top: 4px; }
 {% endblock %}
@@ -50,6 +59,9 @@
   {% if ok == 'categoria' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>Categoría cambiada. Queda puesta a mano: ninguna regla la volverá a cambiar.</span></div>
   {% elif ok == 'nota' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>Nota guardada.</span></div>
   {% elif ok == 'nota_borrada' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>Nota borrada.</span></div>
+  {% elif ok == 'efectivo' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>Gasto en efectivo cambiado.</span></div>
+  {% elif ok == 'efectivo_mal' %}<div class="alert error" role="alert"><svg aria-hidden="true"><use href="#s-over"/></svg><span>No se ha cambiado: el importe tiene que ser mayor que 0 y de hasta 10.000 €, y el día no puede ser en el futuro.</span></div>
+  {% elif ok == 'borrado' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>Gasto en efectivo borrado.</span></div>
   {% elif ok == 'automatica' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>El movimiento vuelve a la categoría que dicen las reglas.</span></div>
   {% elif ok == 'no_encontrado' %}<div class="alert error" role="alert"><svg aria-hidden="true"><use href="#s-over"/></svg><span>No se ha encontrado ese movimiento. Puede que se haya borrado su mes.</span></div>
   {% endif %}
@@ -97,11 +109,27 @@
         <span class="tx-meta">
           {% if tx.category_source == 'none' %}<span class="pill warn">Por revisar</span>
           {% else %}<span class="pill">{{ tx.category }}</span>{% endif %}
-          {% if tx.category_source == 'user' %}<span class="manual">puesta a mano</span>{% endif %}
+          {% if is_cash(tx) %}<span class="cash-tag"><svg aria-hidden="true"><use href="#t-cash"/></svg>efectivo</span>
+          {% elif tx.category_source == 'user' %}<span class="manual">puesta a mano</span>{% endif %}
+          {% if tx.id in covered %}{% set left = (-tx.amount - covered[tx.id]) | round(2) %}<span class="manual">{% if left > 0.005 %}{{ left | eur }} sin apuntar{% else %}todo apuntado{% endif %}</span>{% endif %}
         </span>
         {% if tx.note %}<span class="noteline"><svg aria-hidden="true" viewBox="0 0 12 12"><path d="M2 10h2l5.5-5.5-2-2L2 8z"/></svg><span>{{ tx.note }}</span></span>{% endif %}
       </summary>
       <div class="tx-body">
+        {% if is_cash(tx) %}
+        <p class="meta">Pagado en efectivo. Apuntado a mano el {{ tx.imported_at | local_time }}.</p>
+
+        <form method="post" action="/movimientos/efectivo" class="editgrid">
+          <input type="hidden" name="tx_id" value="{{ tx.id }}">{{ back_fields }}
+          <label>Importe<input type="text" name="importe" inputmode="decimal" value="{{ tx.amount | abs | input_amount }}" maxlength="10" required autocomplete="off"></label>
+          <label>Día<input type="date" name="fecha" value="{{ tx.date }}" min="2000-01-01" max="{{ today }}" required></label>
+          <label>Dónde<input type="text" name="donde" value="{{ tx.merchant if tx.merchant != default_cash_name else '' }}" maxlength="60" placeholder="Opcional" autocomplete="off"></label>
+          <label>Categoría<select name="category">
+            {% for c in cash_choices %}<option value="{{ c }}" {{ 'selected' if c == tx.category }}>{{ c }}</option>{% endfor %}
+          </select></label>
+          <button class="btn" type="submit">Guardar cambios</button>
+        </form>
+        {% else %}
         <div class="raw">{{ tx.concept }}</div>
         <p class="meta">{{ tx.date | short_date }}{% if tx.details %} · {{ tx.details }}{% endif %}{% if tx.balance is not none %} · saldo después {{ tx.balance | eur }}{% endif %}</p>
 
@@ -113,6 +141,7 @@
           </select>
           <button class="btn" type="submit">Cambiar</button>
         </form>
+        {% endif %}
 
         <form method="post" action="/movimientos/nota" class="formrow">
           <input type="hidden" name="tx_id" value="{{ tx.id }}">{{ back_fields }}
@@ -122,8 +151,15 @@
         </form>
 
         <div class="links">
+          {% if is_cash(tx) %}
+          <form method="post" action="/movimientos/borrar" data-confirm="¿Borrar este gasto en efectivo de {{ tx.amount | abs | eur }}?">
+            <input type="hidden" name="tx_id" value="{{ tx.id }}">{{ back_fields }}
+            <button class="linkbtn danger" type="submit">Borrar este gasto</button>
+          </form>
+          {% else %}
           <a href="/revisar?{{ {'q': tx.merchant or tx.concept} | urlencode }}">Crear una regla para {{ tx.merchant or tx.concept }} →</a>
-          {% if tx.category_source == 'user' %}
+          {% endif %}
+          {% if tx.category_source == 'user' and not is_cash(tx) %}
           <form method="post" action="/movimientos/automatica">
             <input type="hidden" name="tx_id" value="{{ tx.id }}">{{ back_fields }}
             <button class="linkbtn" type="submit">Volver a la categoría automática</button>

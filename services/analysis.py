@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Iterable
 
-from services import budget
+from services import budget, cash
 from services import categorizer as cat
 
 DEFAULT_PERIOD = "12m"
@@ -197,13 +197,16 @@ def category_detail(
 
     groups: dict[str, dict[str, Any]] = {}
     for m in period["months"]:
+        covered = m.get("covered") or {}
         for tx in m["transactions"]:
             if (tx.get("category") or cat.UNCATEGORIZED) != name:
                 continue
             key = tx.get("merchant") or cat.merchant_key(tx.get("concept") or "")
             g = groups.setdefault(key, {"merchant": key, "count": 0, "total": 0.0})
             g["count"] += 1
-            g["total"] -= float(tx["amount"])  # spending as a positive amount; refunds reduce it
+            # spending as a positive amount; refunds reduce it, and a withdrawal
+            # only counts for what isn't written down as cash expenses
+            g["total"] -= cash.uncovered(tx, covered)
     ordered = sorted(groups.values(), key=lambda g: (-g["total"], g["merchant"]))
     top, rest = ordered[:TOP_MERCHANTS], ordered[TOP_MERCHANTS:]
     widest = max((g["total"] for g in top), default=0.0)

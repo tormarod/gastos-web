@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}Añadir{% endblock %}
+{% block wrap %}narrow{% endblock %}
+{% block style %}
+  .adder { max-width: 460px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .adder .alert { margin-bottom: 0; align-items: center; flex-wrap: wrap; }
+  .alert .undo { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+  .alert .undo button { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  .alert .undo a { font-weight: 600; }
+
+  .cash-form { display: flex; flex-direction: column; gap: 14px; }
+  .cash-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+  .cash-form legend, .cash-form label.lbl { font-size: .78rem; font-weight: 600; color: var(--muted); padding: 0; margin-bottom: 6px; }
+  .cash-form label.lbl span, .cash-form legend span { font-weight: 500; color: var(--faint); }
+
+  .amount { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .amount label.lbl { margin: 0; }
+  .amount-field { display: flex; align-items: baseline; justify-content: center; gap: 6px; border-bottom: 2px solid var(--line); padding: 0 8px; }
+  .amount-field:focus-within { border-bottom-color: var(--pen); }
+  .amount-field input {
+    width: 7ch; border: 0; background: none; outline: none; padding: 0; text-align: right;
+    font-family: var(--display); font-size: 2.6rem; font-weight: 700; letter-spacing: -0.03em; color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .amount-field input::placeholder { color: var(--faint); }
+  .amount-field span { font-family: var(--display); font-size: 1.5rem; font-weight: 600; color: var(--muted); }
+
+  .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+  .keypad[hidden] { display: none; }
+  .keypad button {
+    height: 50px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    font-family: var(--display); font-size: 1.3rem; font-weight: 600; cursor: pointer; touch-action: manipulation;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .keypad button.fn { background: var(--sunk); border-color: transparent; }
+  .keypad button:active { background: var(--pen-soft); }
+  .keypad svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  .cchips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .cchip { position: relative; }
+  .cchip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .cchip span {
+    display: inline-block; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card);
+    font-size: .85rem; font-weight: 600; cursor: pointer;
+  }
+  .cchip input:checked + span { background: var(--pen); border-color: var(--pen); color: var(--pen-ink); }
+  .cchip input:focus-visible + span { outline: 2px solid var(--pen); outline-offset: 2px; }
+  details.more-cats { margin-top: 7px; }
+  details.more-cats > summary {
+    display: inline-block; list-style: none; cursor: pointer; padding: 7px 12px; border-radius: 999px;
+    border: 1px dashed var(--faint); font-size: .85rem; font-weight: 600; color: var(--pen);
+  }
+  details.more-cats > summary::-webkit-details-marker { display: none; }
+  details.more-cats[open] > summary { margin-bottom: 7px; }
+
+  .opt-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+  .opt-row input[type=text] { width: 100%; }
+  .dayseg { display: flex; background: var(--sunk); border-radius: 10px; padding: 3px; gap: 3px; }
+  .dayseg label { position: relative; }
+  .dayseg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .dayseg span { display: block; padding: 5px 11px; border-radius: 8px; font-size: .85rem; font-weight: 600; color: var(--muted); cursor: pointer; }
+  .dayseg input:checked + span { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(20, 24, 40, .12); }
+  .dayseg input:focus-visible + span { outline: 2px solid var(--pen); outline-offset: 1px; }
+  .day-other { display: none; }
+  .cash-form:has(#dia-otro:checked) .day-other { display: flex; flex-direction: column; }
+  .day-other input { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; }
+  #save { padding: 13px 14px; font-size: .95rem; }
+  #save:disabled { opacity: .55; cursor: default; filter: none; }
+
+  .pocket { display: flex; align-items: center; gap: 8px; font-size: .88rem; color: var(--muted); }
+  .pocket b { color: var(--ink); }
+  .pocket svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .recent a { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 10px; padding: 9px 0; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
+  .recent a:first-of-type { border-top: 0; padding-top: 0; }
+  .recent a:hover .n { text-decoration: underline; }
+  .recent .n { font-weight: 600; overflow-wrap: anywhere; }
+  .recent .v { font-weight: 600; text-align: right; }
+  .recent .m { grid-column: 1 / -1; font-size: .8rem; color: var(--muted); }
+{% endblock %}
+
+{% macro day_word(value) -%}
+  {%- if value == today %}hoy{% elif value == yesterday %}ayer{% else %}el {{ value | day_month }}{% endif -%}
+{%- endmacro %}
+
+{% block content %}
+<div class="adder">
+  <h1 class="sr-only">Apuntar un gasto en efectivo</h1>
+  <nav class="periods seg" aria-label="Qué añadir">
+    <a class="period" href="/apuntar" aria-current="page">Gasto en efectivo</a>
+    <a class="period" href="/upload">Extracto del banco</a>
+  </nav>
+
+  {% if saved %}
+  <div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg>
+    <span>Apuntados <b class="num">{{ saved.amount | abs | eur }}</b> en {{ saved.category }}, {{ day_word(saved.date) }}.</span>
+    <form class="undo" method="post" action="/apuntar/deshacer">
+      <input type="hidden" name="tx_id" value="{{ saved.id }}">
+      <button type="submit">Deshacer</button>
+    </form>
+  </div>
+  {% elif undone %}
+  <div class="alert info" role="status"><svg aria-hidden="true"><use href="#s-info"/></svg><span>Deshecho: ese gasto ya no está apuntado.</span></div>
+  {% elif missing %}
+  <div class="alert error" role="alert"><svg aria-hidden="true"><use href="#s-over"/></svg><span>No se ha encontrado ese gasto. Puede que ya estuviera borrado.</span></div>
+  {% endif %}
+  {% if error %}
+  <div class="alert error" role="alert"><svg aria-hidden="true"><use href="#s-over"/></svg><span>
+    {% if error == 'importe' %}Escribid un importe mayor que 0 y de hasta 10.000 €.
+    {% elif error == 'categoria' %}Elegid una categoría.
+    {% else %}Ese día no vale: tiene que ser una fecha de verdad y no puede ser en el futuro.{% endif %}
+    No se ha apuntado nada.
+  </span></div>
+  {% endif %}
+
+  <form class="cash-form" id="cash-form" method="post" action="/apuntar">
+    <div class="amount">
+      <label class="lbl" for="importe">Importe</label>
+      <div class="amount-field">
+        <input id="importe" name="importe" type="text" inputmode="decimal" autocomplete="off" maxlength="10"
+               placeholder="0,00" value="{{ form.importe or '' }}" required>
+        <span aria-hidden="true">€</span>
+      </div>
+    </div>
+
+    <div class="keypad" id="keypad" hidden>
+      {% for key in ['1', '2', '3', '4', '5', '6', '7', '8', '9'] %}<button type="button" data-key="{{ key }}">{{ key }}</button>{% endfor %}
+      <button type="button" class="fn" data-key="," aria-label="Coma">,</button>
+      <button type="button" data-key="0">0</button>
+      <button type="button" class="fn" data-key="back" aria-label="Borrar la última cifra"><svg aria-hidden="true"><use href="#t-back"/></svg></button>
+    </div>
+
+    <fieldset>
+      <legend>Categoría</legend>
+      <div class="cchips">
+        {% for c in first_choices %}<label class="cchip"><input type="radio" name="categoria" value="{{ c }}" {{ 'checked' if c == form.categoria }}><span>{{ c }}</span></label>{% endfor %}
+      </div>
+      <details class="more-cats" {{ 'open' if form.categoria in more_choices }}>
+        <summary>Más categorías</summary>
+        <div class="cchips">
+          {% for c in more_choices %}<label class="cchip"><input type="radio" name="categoria" value="{{ c }}" {{ 'checked' if c == form.categoria }}><span>{{ c }}</span></label>{% endfor %}
+        </div>
+      </details>
+    </fieldset>
+
+    <div class="opt-row">
+      <div>
+        <label class="lbl" for="donde">Dónde <span>(opcional)</span></label>
+        <input type="text" id="donde" name="donde" maxlength="60" autocomplete="off" placeholder="Frutería, peluquería…" value="{{ form.donde or '' }}">
+      </div>
+      <fieldset>
+        <legend>Día</legend>
+        <div class="dayseg">
+          {% set dia = form.dia or 'hoy' %}
+          <label><input type="radio" name="dia" value="hoy" id="dia-hoy" {{ 'checked' if dia == 'hoy' }}><span>Hoy</span></label>
+          <label><input type="radio" name="dia" value="ayer" id="dia-ayer" {{ 'checked' if dia == 'ayer' }}><span>Ayer</span></label>
+          <label><input type="radio" name="dia" value="otro" id="dia-otro" {{ 'checked' if dia == 'otro' }}><span>Otro</span></label>
+        </div>
+      </fieldset>
+    </div>
+    <div class="day-other">
+      <label class="lbl" for="fecha">Qué día</label>
+      <input type="date" id="fecha" name="fecha" min="2000-01-01" max="{{ today }}" value="{{ form.fecha or '' }}">
+    </div>
+
+    <button class="btn btn-primary btn-block" id="save" type="submit">Apuntar</button>
+  </form>
+
+  {% if in_hand > 0.005 %}
+  <p class="pocket"><svg aria-hidden="true"><use href="#t-cash"/></svg><span>Del cajero, sin apuntar (último mes): <b class="num">{{ in_hand | eur }}</b></span></p>
+  {% endif %}
+
+  {% if recent %}
+  <section class="card recent" aria-labelledby="recent-title">
+    <h2 id="recent-title">Últimos apuntados</h2>
+    {% for tx in recent %}
+    {% set anchor = tx.id | tx_anchor %}
+    <a href="/movimientos?{{ {'mes': tx.date[:7], 'ver': anchor} | urlencode }}#{{ anchor }}">
+      <span class="n">{{ tx | nice_name }}</span>
+      <span class="v num">{{ tx.amount | eur }}</span>
+      <span class="m">{{ tx.category }} · {{ day_word(tx.date) }}</span>
+    </a>
+    {% endfor %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const form = document.getElementById('cash-form');
+    const input = document.getElementById('importe');
+    const keypad = document.getElementById('keypad');
+    const save = document.getElementById('save');
+
+    // On phones the app's own keypad replaces the system keyboard, so nothing covers the categories.
+    if (window.matchMedia('(pointer: coarse)').matches) {
+      keypad.hidden = false;
+      input.setAttribute('inputmode', 'none');
+    }
+
+    const value = () => {
+      const n = parseFloat(input.value.replace(/\s|€/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+      return Number.isFinite(n) ? n : 0;
+    };
+    const euros = (n) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+
+    function update() {
+      const amount = value();
+      const category = form.querySelector('input[name="categoria"]:checked');
+      if (!(amount > 0)) {
+        save.textContent = 'Escribid el importe';
+      } else if (!category) {
+        save.textContent = 'Elegid la categoría';
+      } else {
+        save.textContent = `Apuntar ${euros(amount)} en ${category.value}`;
+      }
+      save.disabled = !(amount > 0 && category);
+    }
+
+    keypad.addEventListener('click', (e) => {
+      const key = e.target.closest('button');
+      if (!key) return;
+      let v = input.value;
+      const k = key.dataset.key;
+      if (k === 'back') {
+        v = v.slice(0, -1);
+      } else if (k === ',') {
+        if (!v.includes(',')) v = (v || '0') + ',';
+      } else {
+        if (/,\d\d$/.test(v)) return;                       // two decimals at most
+        if (!v.includes(',') && v.length >= 5) return;      // 10.000 € at most
+        v = v === '0' ? k : v + k;
+      }
+      input.value = v;
+      update();
+    });
+
+    form.addEventListener('input', update);
+    form.addEventListener('change', update);
+    form.addEventListener('submit', () => { setTimeout(() => { save.disabled = true; }); });  // no double tap
+    update();
+  })();
+</script>
+{% endblock %}
