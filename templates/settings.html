@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Ajustes{% endblock %}
+{% block wrap %}narrow{% endblock %}
+{% block style %}
+  .settings { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 900px) { .settings { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; } }
+  .totals { font-size: .85rem; color: var(--muted); margin: -4px 0 12px; }
+  .fill-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .fill-row .hint { font-size: .8rem; color: var(--muted); }
+
+  .srow {
+    display: grid; grid-template-columns: minmax(0, 1fr) 46px 108px; align-items: center; gap: 8px;
+    padding: 8px 0; border-top: 1px solid var(--line);
+  }
+  .srow.head { border-top: 0; padding: 0 0 4px; font-size: .68rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .srow.head span:nth-child(2) { text-align: center; }
+  .srow.head span:nth-child(3) { text-align: right; }
+  .sname { font-weight: 600; font-size: .92rem; line-height: 1.25; }
+  .sname small { display: block; font-weight: 500; font-size: .76rem; color: var(--muted); }
+  .fixbox { display: flex; justify-content: center; align-items: center; height: 36px; cursor: pointer; }
+  .amount { position: relative; }
+  .amount input { width: 100%; text-align: right; padding-right: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .amount::after { content: "€"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: .85rem; pointer-events: none; }
+  .save { margin-top: 14px; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  .field label { font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .field input { width: 100%; }
+  .fields-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .help { font-size: .8rem; color: var(--muted); line-height: 1.5; }
+{% endblock %}
+
+{% block content %}
+<h1>Ajustes</h1>
+<p class="sub">El presupuesto de cada mes y lo que queréis ahorrar. Inicio lo usa para deciros si vais bien.</p>
+
+{% if ok == 'presupuesto' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>Presupuesto guardado. <a href="/">Ver Inicio →</a></span></div>
+{% elif ok == 'objetivos' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>Objetivos guardados.</span></div>
+{% endif %}
+{% if error == 'importe' %}<div class="alert error" role="alert"><svg aria-hidden="true"><use href="#s-over"/></svg><span>El importe de {{ error_category or 'una categoría' }} no es válido: tiene que ser un número entre 0 y 100.000 €. No se ha guardado nada.</span></div>
+{% elif error == 'objetivos' %}<div class="alert error" role="alert"><svg aria-hidden="true"><use href="#s-over"/></svg><span>Los objetivos tienen que ser números entre 0 y 1.000.000 €. No se ha guardado nada.</span></div>
+{% endif %}
+{% if suggested %}
+<div class="alert info" role="status"><svg aria-hidden="true"><use href="#s-info"/></svg>
+  <span>Propuesta con la media de {{ suggestion_months[0] | month_name }}{% if suggestion_months | length > 1 %} a {{ suggestion_months[-1] | month_name }}{% endif %}.
+  Repasadla y pulsad <b>Guardar presupuesto</b>: hasta entonces no cambia nada. <a href="/ajustes">Descartar</a></span></div>
+{% endif %}
+
+<div class="settings">
+  <section class="card" id="presupuesto">
+    <div class="card-title"><h2>Presupuesto mensual</h2><span class="num"><b>{{ total | eur(0) }}</b> al mes</span></div>
+    <p class="totals">Fijos {{ fixed_total | eur(0) }} · variables {{ variable_total | eur(0) }}. Dejad vacío lo que no queráis limitar.</p>
+
+    <div class="fill-row">
+      {% if suggestion_months %}
+      <a class="btn" href="/ajustes?sugerir=1#presupuesto">Rellenar con la media de {{ suggestion_months[0] | month_name }}{% if suggestion_months | length > 1 %}–{{ suggestion_months[-1] | month_name }}{% endif %}</a>
+      {% else %}
+      <span class="hint">Cuando haya un mes completo de datos podréis rellenarlo con vuestra media.</span>
+      {% endif %}
+    </div>
+
+    <form method="post" action="/ajustes/presupuestos">
+      <div class="srow head" aria-hidden="true"><span>Categoría</span><span>Fijo</span><span>€ al mes</span></div>
+      {% for r in rows %}
+      <div class="srow">
+        <label class="sname" for="b{{ loop.index }}">{{ r.name }}
+          <small>{% if r.average is none %}&nbsp;{% elif r.average >= 0.5 %}media {{ r.average | eur(0) }}{% else %}sin gastos recientes{% endif %}</small>
+        </label>
+        <input type="hidden" name="categoria" value="{{ r.name }}">
+        <label class="fixbox" title="Fijo: se paga de golpe (alquiler, recibos)">
+          <input type="checkbox" name="fijo" value="{{ r.name }}" {{ 'checked' if r.fixed }}>
+          <span class="sr-only">{{ r.name }} es un gasto fijo</span>
+        </label>
+        <span class="amount">
+          <input type="text" id="b{{ loop.index }}" name="importe" value="{{ r.value | input_amount }}"
+                 inputmode="decimal" autocomplete="off" placeholder="—" maxlength="12" aria-label="Presupuesto de {{ r.name }} en euros">
+        </span>
+      </div>
+      {% endfor %}
+      <button class="btn btn-primary btn-block save" type="submit">Guardar presupuesto</button>
+    </form>
+  </section>
+
+  <section class="card" id="objetivos">
+    <div class="card-title"><h2>Objetivos</h2></div>
+    <form method="post" action="/ajustes/objetivos">
+      <div class="fields-2">
+        <div class="field">
+          <label for="monthly_saving">Ahorro al mes (€)</label>
+          <input type="text" id="monthly_saving" name="monthly_saving" value="{{ goals.monthly_saving | input_amount }}" inputmode="decimal" autocomplete="off" maxlength="12" required>
+        </div>
+        <div class="field">
+          <label for="annual_fund">Fondo del año (€)</label>
+          <input type="text" id="annual_fund" name="annual_fund" value="{{ goals.annual_fund | input_amount }}" inputmode="decimal" autocomplete="off" maxlength="12" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="fund_name">Nombre del fondo</label>
+        <input type="text" id="fund_name" name="fund_name" value="{{ goals.fund_name }}" maxlength="40">
+      </div>
+      <div class="field">
+        <label for="fund_note">Para qué es</label>
+        <input type="text" id="fund_note" name="fund_note" value="{{ goals.fund_note }}" maxlength="80">
+      </div>
+      <p class="help">El fondo suma lo que sobra en los meses en positivo del año. El ahorro al mes se compara con lo que queda cada mes.</p>
+      <button class="btn btn-primary btn-block save" type="submit">Guardar objetivos</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

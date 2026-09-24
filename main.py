@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import os
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlencode, urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 from fastapi import Cookie, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -18,7 +21,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 load_dotenv()
 
-from services import insights, parser, repo  # noqa: E402
+from services import budget, insights, parser, repo  # noqa: E402
 from services import categorizer as cat  # noqa: E402
 from services import ledger as lg  # noqa: E402
 
@@ -58,6 +61,17 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+try:
+    _LOCAL_TZ = ZoneInfo("Europe/Madrid")
+except ZoneInfoNotFoundError:  # no tz database on the system
+    _LOCAL_TZ = timezone.utc
+
+
+def _today() -> date:
+    """Today in Spain, where the months you both live in start and end."""
+    return datetime.now(_LOCAL_TZ).date()
+
+
 # ── Template helpers ─────────────────────────────────────────────────────────
 
 MONTH_NAMES = [
@@ -66,14 +80,30 @@ MONTH_NAMES = [
 ]
 
 
-def _eur(value: Any, decimals: int = 2) -> str:
-    """-1234.5 → '−1.234,50 €'"""
+def _number(value: Any, decimals: int = 0) -> str:
+    """-1234.5 → '−1.235' (Spanish separators, no currency)"""
     try:
         number = float(value)
     except (TypeError, ValueError):
         return "—"
     text = f"{abs(number):,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"{'−' if number < 0 else ''}{text} €"
+    return f"{'−' if number < 0 and text.strip('0,.') else ''}{text}"
+
+
+def _eur(value: Any, decimals: int = 2) -> str:
+    """-1234.5 → '−1.234,50 €'"""
+    text = _number(value, decimals)
+    return text if text == "—" else f"{text}\u00a0€"  # no line break between number and €
+
+
+def _input_amount(value: Any) -> str:
+    """450.0 → '450', 12.5 → '12,5', None → '' (for form fields)"""
+    if value is None:
+        return ""
+    number = float(value)
+    if number == int(number):
+        return str(int(number))
+    return f"{number:.2f}".rstrip("0").replace(".", ",")
 
 
 def _month_label(value: str | None) -> str:
@@ -92,10 +122,41 @@ def _short_date(value: str | None) -> str:
     return f"{value[8:10]}/{value[5:7]}/{value[:4]}"
 
 
+def _day_month(value: str | None) -> str:
+    """'2026-09-20' → '20 sep'"""
+    if not value or len(value) < 10:
+        return value or "—"
+    try:
+        return f"{int(value[8:10])} {MONTH_NAMES[int(value[5:7]) - 1][:3]}"
+    except (ValueError, IndexError):
+        return value
+
+
+def _month_name(value: str | None) -> str:
+    """'2026-09' → 'septiembre'"""
+    try:
+        return MONTH_NAMES[int((value or "")[5:7]) - 1]
+    except (ValueError, IndexError):
+        return value or "—"
+
+
+def _asset_version() -> str:
+    """Changes whenever a static file changes, so browsers fetch the new one."""
+    digest = hashlib.sha1()
+    for path in sorted(Path("static").glob("*.*")):
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:10]
+
+
 templates.env.filters["eur"] = _eur
+templates.env.filters["number"] = _number
+templates.env.filters["input_amount"] = _input_amount
 templates.env.filters["month_label"] = _month_label
+templates.env.filters["month_name"] = _month_name
 templates.env.filters["short_date"] = _short_date
+templates.env.filters["day_month"] = _day_month
 templates.env.globals["categories"] = cat.CATEGORIES
+templates.env.globals["asset_version"] = _asset_version()
 
 
 def _render(
@@ -228,9 +289,23 @@ def logout():
     return response
 
 
-# ── Dashboard ────────────────────────────────────────────────────────────────
+# ── Home ─────────────────────────────────────────────────────────────────────
 
-def _dashboard_context(ledger: lg.Ledger) -> dict[str, Any]:
+@app.get("/", response_class=HTMLResponse)
+def home(request: Request, mes: str | None = None, session: SessionCookie = None):
+    _require_auth(session)
+    ledger = repo.load_ledger()
+    settings = budget.settings_view(repo.load_settings())
+    months = lg.month_summaries(ledger)
+    today = _today()
+    month = budget.pick_month(mes, months, today)
+    view = budget.month_overview(months, month, settings, today, lg.last_date(ledger))
+    return _render(request, "home.html", {"view": view, "has_data": bool(months)}, ledger=ledger)
+
+
+# ── Analysis ─────────────────────────────────────────────────────────────────
+
+def _dashboard_context(ledger: lg.Ledger, settings: dict[str, Any]) -> dict[str, Any]:
     sorted_months = lg.month_summaries(ledger)
 
     all_categories: dict[str, float] = {}
@@ -261,10 +336,8 @@ def _dashboard_context(ledger: lg.Ledger) -> dict[str, Any]:
         for m in sorted_months
         for tx in m["transactions"]
     ]
-    last_date = max((tx["date"] for tx in ledger["transactions"] if tx.get("date")), default=None)
-
-    savings_accumulated = round(sum(m["balance"] for m in sorted_months if m["balance"] > 0), 2)
-    savings_goal = 2400.0
+    today = _today()
+    goals = settings["goals"]
 
     return {
         "sorted_months": sorted_months,
@@ -276,24 +349,24 @@ def _dashboard_context(ledger: lg.Ledger) -> dict[str, Any]:
         "avg_income": round(total_income / total_months, 2) if total_months else 0,
         "avg_expenses": round(total_expenses / total_months, 2) if total_months else 0,
         "avg_balance": round(total_balance / total_months, 2) if total_months else 0,
-        "savings_accumulated": savings_accumulated,
-        "savings_goal": savings_goal,
-        "savings_pct": round(min(savings_accumulated / savings_goal * 100, 100), 1),
+        "goals": goals,
+        "fund": budget.fund_progress(sorted_months, goals, budget.month_key(today), today),
         "latest_transactions": latest["transactions"][:50] if latest else [],
         "latest_month": latest["month"] if latest else None,
         "year": (latest["month"][:4] if latest else str(_now().year)),
-        "last_date": last_date,
+        "last_date": lg.last_date(ledger),
         "all_transactions": all_transactions,
         "has_data": total_months > 0,
         "insight_cards": insights.generate(sorted_months),
     }
 
 
-@app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, session: SessionCookie = None):
+@app.get("/analisis", response_class=HTMLResponse)
+def analysis(request: Request, session: SessionCookie = None):
     _require_auth(session)
     ledger = repo.load_ledger()
-    return _render(request, "dashboard.html", _dashboard_context(ledger), ledger=ledger)
+    settings = budget.settings_view(repo.load_settings())
+    return _render(request, "dashboard.html", _dashboard_context(ledger, settings), ledger=ledger)
 
 
 # ── Upload ───────────────────────────────────────────────────────────────────
@@ -452,6 +525,94 @@ def delete_rule(pattern: Annotated[str, Form()], session: SessionCookie = None):
     rules = repo.update_rules(lambda current: lg.delete_rule(current, pattern))
     changed = repo.update_ledger(lambda ledger: lg.apply_rules(ledger, rules))
     return _redirect("/revisar", ok="borrada", n=changed)
+
+
+# ── Settings ─────────────────────────────────────────────────────────────────
+
+def _budget_category(name: str) -> str:
+    if name not in budget.BUDGETABLE:
+        raise HTTPException(status_code=400, detail="Categoría desconocida.")
+    return name
+
+
+@app.get("/ajustes", response_class=HTMLResponse)
+def settings_page(request: Request, sugerir: str | None = None, session: SessionCookie = None):
+    _require_auth(session)
+    ledger = repo.load_ledger()
+    settings = budget.settings_view(repo.load_settings())
+    today = _today()
+    suggestion = budget.suggest_budgets(lg.month_summaries(ledger), budget.month_key(today))
+    suggested = bool(sugerir) and bool(suggestion["suggested"])
+    values = suggestion["suggested"] if suggested else settings["budgets"]
+    fixed = set(settings["fixed_categories"])
+    averages = suggestion["averages"]
+    order = {c: i for i, c in enumerate(budget.BUDGETABLE)}
+    rows = sorted(
+        ({"name": c, "value": values.get(c), "fixed": c in fixed, "average": averages.get(c)}
+         for c in budget.BUDGETABLE),
+        key=lambda r: (not r["fixed"], -(r["average"] or 0), order[r["name"]]),
+    )
+    fixed_total = round(sum(v for c, v in values.items() if c in fixed), 2)
+    total = round(sum(values.values()), 2)
+    params = request.query_params
+    return _render(request, "settings.html", {
+        "rows": rows,
+        "total": total,
+        "fixed_total": fixed_total,
+        "variable_total": round(total - fixed_total, 2),
+        "goals": settings["goals"],
+        "suggestion_months": suggestion["months"],
+        "suggested": suggested,
+        "ok": params.get("ok"),
+        "error": params.get("error"),
+        "error_category": params.get("cat"),
+    }, ledger=ledger)
+
+
+@app.post("/ajustes/presupuestos")
+def save_budgets(
+    categoria: Annotated[list[str], Form()],
+    importe: Annotated[list[str], Form()],
+    fijo: Annotated[list[str] | None, Form()] = None,
+    session: SessionCookie = None,
+):
+    _require_auth(session)
+    if len(categoria) != len(importe):
+        raise HTTPException(status_code=400, detail="Formulario incompleto.")
+    budgets: dict[str, float] = {}
+    for name, text in zip(categoria, importe):
+        _budget_category(name)
+        try:
+            amount = budget.parse_amount(text, budget.MAX_BUDGET)
+        except ValueError:
+            return _redirect("/ajustes", error="importe", cat=name)
+        if amount:
+            budgets[name] = amount
+    fixed = [_budget_category(name) for name in (fijo or [])]
+    now = repo.now_iso()
+    repo.update_settings(lambda doc: budget.set_budgets(doc, budgets, fixed, now))
+    return _redirect("/ajustes", ok="presupuesto")
+
+
+@app.post("/ajustes/objetivos")
+def save_goals(
+    monthly_saving: Annotated[str, Form()] = "",
+    annual_fund: Annotated[str, Form()] = "",
+    fund_name: Annotated[str, Form()] = "",
+    fund_note: Annotated[str, Form()] = "",
+    session: SessionCookie = None,
+):
+    _require_auth(session)
+    try:
+        saving = budget.parse_amount(monthly_saving, budget.MAX_GOAL)
+        fund = budget.parse_amount(annual_fund, budget.MAX_GOAL)
+    except ValueError:
+        return _redirect("/ajustes", error="objetivos")
+    goals = {"monthly_saving": saving or 0.0, "annual_fund": fund or 0.0,
+             "fund_name": fund_name, "fund_note": fund_note}
+    now = repo.now_iso()
+    repo.update_settings(lambda doc: budget.set_goals(doc, goals, now))
+    return _redirect("/ajustes", ok="objetivos")
 
 
 # ── API (JSON) ───────────────────────────────────────────────────────────────

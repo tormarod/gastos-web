@@ -1,4 +1,4 @@
-Help the user get a month's movements into the app and check the dashboard updated correctly.
+Help the user get a month's movements into the app and check Inicio and Análisis updated correctly.
 
 1. **Export from BBVA**
    - Log in to bbva.es → Cuentas → the shared account → download the movements as **Excel (.xlsx)**. Several months at once is fine.
@@ -8,7 +8,8 @@ Help the user get a month's movements into the app and check the dashboard updat
 
 3. **Verify**
    - The upload message shows how many movements were new and how many were already there.
-   - Dashboard: the month appears in the chart and the KPIs look reasonable.
+   - Inicio: "Datos hasta el …" shows the last movement and the stale-data banner is gone.
+   - Análisis: the month appears in the chart and the KPIs look reasonable.
    - **Revisar**: assign a category to anything pending. Saving a rule applies it to every past and future movement. For a merchant that should be a built-in keyword, use `/categorize`.
 
 4. **If the upload fails**

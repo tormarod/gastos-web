@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}{{ view.month | month_label | capitalize }}{% endblock %}
+{% block wrap %}narrow{% endblock %}
+{% block style %}
+  .home { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr);
+          grid-template-areas: "top" "alerts" "hero" "pace" "review" "cats" "saving"; }
+  @media (min-width: 900px) {
+    .home { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 20px; align-items: start;
+            grid-template-areas: "top top" "alerts alerts" "hero cats" "pace cats" "review cats" "saving cats" ". cats";
+            grid-template-rows: repeat(6, auto) 1fr; }
+    .home > .cats { align-self: start; }
+  }
+  .top { grid-area: top; }
+  .alerts { grid-area: alerts; }
+  .alerts:empty { display: none; }
+  .hero { grid-area: hero; }
+  .pace { grid-area: pace; }
+  .review { grid-area: review; }
+  .cats { grid-area: cats; }
+  .saving { grid-area: saving; }
+
+  .monthbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .arrow {
+    width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--card);
+    display: inline-flex; align-items: center; justify-content: center; color: var(--ink);
+    text-decoration: none; font-size: 1.2rem; line-height: 1; flex: none;
+  }
+  .arrow:hover { border-color: var(--pen); }
+  .arrow.off { opacity: .3; }
+  .monthbar h1 { font-size: 1.45rem; text-align: center; }
+  .fresh { text-align: center; font-size: .8rem; color: var(--muted); margin-top: 4px; }
+  .fresh a { font-weight: 600; }
+
+  .hero-fig { font-family: var(--body); font-size: 3.2rem; font-weight: 700; line-height: 1; letter-spacing: -0.035em; margin: 6px 0 6px; }
+  .hero-sub { color: var(--muted); font-size: .9rem; }
+  .hero-sub b { color: var(--ink); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+  .mini { background: var(--sunk); border-radius: 11px; padding: 10px 12px; display: flex; flex-direction: column; }
+  .mini .label, .mini .note { font-size: .78rem; color: var(--muted); }
+  .mini .v { font-size: 1.15rem; font-weight: 700; }
+
+  .rows { display: flex; flex-direction: column; gap: 7px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: .9rem; }
+  .row .right { display: inline-flex; align-items: center; gap: 6px; }
+  .row .st { font-size: .78rem; }
+  .row .pending { font-size: .78rem; color: var(--muted); }
+  .note-line { font-size: .8rem; color: var(--muted); margin-top: 12px; }
+  .cta { background: var(--pen-soft); border-color: transparent; box-shadow: none; }
+  .cta p { margin: 6px 0 12px; font-size: .9rem; }
+{% endblock %}
+
+{% block content %}
+{% set pace = view.pace %}
+{% set show_tick = view.tick is not none and view.cutoff_day %}
+<div class="home">
+
+  <div class="top">
+    <div class="monthbar">
+      {% if view.prev_month %}<a class="arrow" href="/?mes={{ view.prev_month }}" aria-label="Mes anterior" title="{{ view.prev_month | month_label | capitalize }}">‹</a>
+      {% else %}<span class="arrow off" aria-hidden="true">‹</span>{% endif %}
+      <h1>{{ view.month | month_label | capitalize }}</h1>
+      {% if view.next_month %}<a class="arrow" href="/?mes={{ view.next_month }}" aria-label="Mes siguiente" title="{{ view.next_month | month_label | capitalize }}">›</a>
+      {% else %}<span class="arrow off" aria-hidden="true">›</span>{% endif %}
+    </div>
+    <p class="fresh">
+      {% if view.complete %}Mes completo
+      {% elif view.data_until %}Datos hasta el {{ view.data_until | day_month }}
+      {% else %}Sin movimientos de este mes{% endif %}
+      · <a href="/upload">Subir extracto</a>
+    </p>
+  </div>
+
+  <div class="alerts">
+    {%- if view.stale -%}
+    <div class="banner stack" role="status">
+      <span>
+        {% if view.last_date %}Los últimos datos son del <b>{{ view.last_date | day_month }}</b>, hace {{ view.days_since }} días.
+        {% else %}Todavía no hay movimientos.{% endif %}
+        Subid el extracto para ver el mes al día.
+      </span>
+      <a class="btn btn-marker" href="/upload">Subir extracto</a>
+    </div>
+    {%- endif -%}
+  </div>
+
+  <section class="card hero" aria-label="Gasto del mes">
+    <span class="kicker">
+      {% if view.complete %}Gastado en {{ view.month | month_name }}
+      {% elif view.data_until %}Gastado hasta el {{ view.data_until | day_month }}
+      {% else %}Gastado este mes{% endif %}
+    </span>
+    <div class="hero-fig num">{{ view.spent | eur(0) }}</div>
+    {% if view.has_budgets %}
+    <p class="hero-sub">de <b class="num">{{ view.budget_total | eur(0) }}</b> de presupuesto · {{ view.budget_pct }} %</p>
+    <div class="split">
+      <div class="mini">
+        <span class="label">Fijos</span>
+        <span class="v num">{{ view.fixed.spent | eur(0) }}</span>
+        <span class="note">
+          {% if not view.fixed.budget %}sin presupuesto
+          {% elif view.fixed.pending > 0 %}faltan {{ view.fixed.pending | eur(0) }}
+          {% elif view.complete %}de {{ view.fixed.budget | eur(0) }}
+          {% else %}todo pagado{% endif %}
+        </span>
+      </div>
+      <div class="mini">
+        <span class="label">Variables</span>
+        <span class="v num">{{ view.variable.spent | eur(0) }}</span>
+        <span class="note">{% if view.variable.budget %}de {{ view.variable.budget | eur(0) }}{% else %}sin presupuesto{% endif %}</span>
+      </div>
+    </div>
+    {% elif view.recent_average is not none %}
+    <p class="hero-sub">Media de {{ view.recent_months[0] | month_name }}{% if view.recent_months | length > 1 %} a {{ view.recent_months[-1] | month_name }}{% endif %}:
+      <b class="num">{{ view.recent_average | eur(0) }}</b> al mes</p>
+    {% endif %}
+  </section>
+
+  {% if pace %}
+  <section class="card pace" aria-label="Ritmo de los gastos variables">
+    <div class="card-title"><h2>Ritmo de los variables</h2>{% if show_tick %}<span class="legend-tick">hoy</span>{% endif %}</div>
+    <div class="meter big {{ 'over' if pace.over }}"
+         title="Variables: {{ view.variable.spent | eur(0) }} de {{ view.variable.budget | eur(0) }} ({{ pace.pct | round | int }} %).{% if show_tick %} A estas alturas tocaría ir por {{ pace.expected | eur(0) }}.{% endif %}">
+      <div class="track" style="--p: {{ pace.fill }}%{% if show_tick %}; --t: {{ view.tick }}%{% endif %}"><i></i>{% if show_tick %}<b></b>{% endif %}</div>
+      <div class="meter-foot"><span class="num">{{ view.variable.spent | eur(0) }}</span><span class="num">{{ view.variable.budget | eur(0) }}</span></div>
+    </div>
+    <p class="message iconed" style="margin-top:12px">
+      {% if not view.cutoff_day %}
+        <svg class="info" aria-hidden="true"><use href="#s-info"/></svg>
+        <span>Aún no hay movimientos de este mes. Tenéis {{ view.variable.budget | eur(0) }} para gastos variables.</span>
+      {% else %}
+        {% if pace.state == 'above' %}<svg class="warn" aria-hidden="true"><use href="#s-warn"/></svg>
+        {% else %}<svg class="good" aria-hidden="true"><use href="#s-good"/></svg>{% endif %}
+        <span>
+          <b>{% if pace.state == 'below' %}Vais {{ pace.diff | eur(0) }} por debajo del ritmo.
+             {% elif pace.state == 'above' %}Vais {{ pace.diff | eur(0) }} por encima del ritmo.
+             {% else %}Vais justo al ritmo.{% endif %}</b>
+          {% if pace.remaining > 0 %}
+            Quedan <b class="num">{{ pace.remaining | eur(0) }}</b> para {{ 'el día que falta' if pace.days_left == 1 else 'los ' ~ pace.days_left ~ ' días que faltan' }}{% if pace.per_day and pace.days_left > 1 %}, unos <span class="num">{{ pace.per_day | eur(0) }}</span> al día{% endif %}.
+          {% else %}
+            Ya se ha gastado todo el presupuesto de variables{% if pace.remaining < 0 %} y {{ (0 - pace.remaining) | eur(0) }} más{% endif %}.
+          {% endif %}
+        </span>
+      {% endif %}
+    </p>
+  </section>
+  {% endif %}
+
+  {% if view.review %}
+  <a class="banner review" href="/revisar">
+    <span>{{ view.review }} movimiento{{ 's' if view.review != 1 }} de este mes por revisar</span>
+    <span class="go">Revisar →</span>
+  </a>
+  {% endif %}
+
+  {% if view.has_budgets %}
+  <section class="card cats" aria-label="Presupuesto por categoría">
+    <div class="card-title"><h2>Por categoría</h2>{% if show_tick %}<span class="legend-tick">dónde deberíais ir hoy</span>{% endif %}</div>
+
+    {% for m in view.meters %}
+    <div class="meter {{ m.state }}" title="{{ m.name }}: {{ m.spent | eur(0) }} de {{ m.budget | eur(0) }} ({{ m.pct | round | int }} %)">
+      <div class="meter-head">
+        <span class="meter-name">{{ m.name }}</span>
+        <span class="meter-val num">{{ m.spent | number }} <small>/ {{ m.budget | eur(0) }}</small></span>
+      </div>
+      <div class="track" style="--p: {{ m.fill }}%{% if show_tick %}; --t: {{ view.tick }}%{% endif %}"><i></i>{% if show_tick %}<b></b>{% endif %}</div>
+      <div class="meter-foot">
+        {% if m.state == 'over' %}
+          <span class="st over"><svg aria-hidden="true"><use href="#s-over"/></svg>Pasado</span>
+          <span class="num">{{ m.over_by | eur(0 if m.over_by >= 1 else 2) }} de más</span>
+        {% elif m.state == 'warn' %}
+          <span class="st warn"><svg aria-hidden="true"><use href="#s-warn"/></svg>Cerca del límite</span>
+          <span class="num">quedan {{ m.remaining | eur(0) }}</span>
+        {% else %}
+          <span></span><span class="num">quedan {{ m.remaining | eur(0) }}</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+
+    {% if view.untouched %}
+    <p class="note-line">Sin gastos todavía:
+      {% for m in view.untouched %}{{ m.name }} ({{ m.budget | eur(0) }}){{ ', ' if not loop.last else '.' }}{% endfor %}</p>
+    {% endif %}
+    {% if not view.meters and not view.untouched %}
+    <p class="note-line">No hay presupuesto para gastos variables. <a href="/ajustes#presupuesto">Añadir →</a></p>
+    {% endif %}
+
+    {% if view.fixed.rows %}
+    <hr class="sep">
+    <div class="card-title"><h3>Fijos</h3><span class="aside">se pagan de golpe, sin ritmo</span></div>
+    <div class="rows">
+      {% for r in view.fixed.rows %}
+      <div class="row">
+        <span>{{ r.name }}</span>
+        <span class="right">
+          <span class="num">{{ r.spent | number }} / {{ r.budget | eur(0) }}</span>
+          {% if r.state == 'paid' %}<span class="st good"><svg aria-hidden="true"><use href="#s-good"/></svg><span class="sr-only">Pagado</span></span>
+          {% elif r.state == 'over' %}<span class="st over"><svg aria-hidden="true"><use href="#s-over"/></svg>+{{ r.over_by | eur(0 if r.over_by >= 1 else 2) }}</span>
+          {% elif r.state == 'missing' %}<span class="pending">sin cargo</span>
+          {% else %}<span class="pending">pendiente</span>{% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if view.unbudgeted %}
+    <hr class="sep">
+    <div class="card-title"><h3>Sin presupuesto</h3><a class="aside" href="/ajustes#presupuesto">Ponerles uno →</a></div>
+    <div class="rows">
+      {% for r in view.unbudgeted %}
+      <div class="row">
+        <span>{{ r.name }}{% if r.review %} <a class="small" href="/revisar">({{ r.review }} por revisar)</a>{% endif %}</span>
+        <span class="num">{{ r.spent | eur(0) }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+
+  {% else %}
+  <div class="cats stack">
+    {% if has_data %}
+    <section class="card cta">
+      <h2>Poneos un presupuesto</h2>
+      <p>Así esta pantalla os dirá si vais bien. Lo rellenamos con lo que gastáis de media; solo tenéis que repasarlo.</p>
+      <a class="btn btn-primary btn-block" href="/ajustes?sugerir=1#presupuesto">Crear presupuesto</a>
+    </section>
+    {% endif %}
+    <section class="card" aria-label="Gasto por categoría">
+      <div class="card-title"><h2>Por categoría</h2><span class="aside">{{ view.month | month_name }}</span></div>
+      {% for r in view.spending %}
+      <div class="meter plain" title="{{ r.name }}: {{ r.spent | eur(0) }}">
+        <div class="meter-head"><span class="meter-name">{{ r.name }}</span><span class="meter-val num">{{ r.spent | eur(0) }}</span></div>
+        <div class="track" style="--p: {{ r.fill }}%"><i></i></div>
+      </div>
+      {% else %}
+      <p class="empty">{% if has_data %}No hay gastos en este mes.{% else %}Aún no hay datos. Subid el primer extracto de BBVA en Excel.<br><a class="btn btn-primary" style="margin-top:12px" href="/upload">Subir extracto</a>{% endif %}</p>
+      {% endfor %}
+    </section>
+  </div>
+  {% endif %}
+
+  <section class="card saving" aria-label="Ahorro">
+    {% set saving = view.saving %}
+    {% set fund = view.fund %}
+    <div class="card-title"><h2>Ahorro</h2>{% if saving %}<span class="aside">objetivo {{ saving.goal | eur(0) }} al mes</span>{% endif %}</div>
+    {% if saving %}
+      {% if saving.projected and saving.income_pending %}
+      <p class="message iconed"><svg class="info" aria-hidden="true"><use href="#s-info"/></svg>
+        <span>Aún no han entrado ingresos este mes. La previsión saldrá cuando lleguen.</span></p>
+      {% else %}
+      <p class="message iconed">
+        {% if saving.meets %}<svg class="good" aria-hidden="true"><use href="#s-good"/></svg>
+        {% else %}<svg class="warn" aria-hidden="true"><use href="#s-warn"/></svg>{% endif %}
+        <span>
+          {% if saving.projected %}Si cumplís el presupuesto, acabáis el mes con
+          {% else %}{{ view.month | month_name | capitalize }} acabó con{% endif %}
+          <b class="num">{{ '+' if saving.amount > 0 }}{{ saving.amount | eur(0) }}</b>.
+          {% if not saving.meets %}{{ 'Por debajo' if saving.amount >= 0 else 'Lejos' }} del objetivo.{% endif %}
+        </span>
+      </p>
+      {% if saving.projected %}
+      <p class="note-line" style="margin-top:6px">Entradas del mes {{ saving.income | eur(0) }} − gasto previsto {{ saving.expense | eur(0) }}.</p>
+      {% endif %}
+      {% endif %}
+      <hr class="sep">
+    {% endif %}
+    <div class="meter big" title="{{ fund.name }} {{ fund.year }}: {{ fund.saved | eur(0) }} de {{ fund.goal | eur(0) }} ({{ fund.pct | round | int }} %)">
+      <div class="meter-head">
+        <span class="meter-name">{{ fund.name }} {{ fund.year }}</span>
+        <span class="meter-val num">{{ fund.saved | number }} <small>/ {{ fund.goal | eur(0) }}</small></span>
+      </div>
+      <div class="track" style="--p: {{ fund.fill }}%"><i></i></div>
+      <div class="meter-foot">
+        <span>{{ fund.note }}</span>
+        <span class="num">{% if fund.remaining > 0 %}faltan {{ fund.remaining | eur(0) }}{% else %}conseguido{% endif %}</span>
+      </div>
+    </div>
+    <p class="note-line">Lo que sobró en los meses ya cerrados de {{ fund.year }}. <a href="/ajustes#objetivos">Cambiar objetivos</a></p>
+  </section>
+
+</div>
+{% endblock %}
