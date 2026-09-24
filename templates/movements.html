@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Movimientos{% endblock %}
+{% block wrap %}narrow{% endblock %}
+{% block style %}
+  .movements { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+  .searchbar { display: flex; gap: 8px; }
+  .searchbar input { flex: 1; min-width: 0; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .filters select { border-radius: 999px; padding: 6px 12px; font-size: .85rem; font-weight: 600; }
+  .filters select.on { background: var(--pen-soft); border-color: transparent; color: var(--pen); }
+  .filters .clear { font-size: .85rem; font-weight: 600; }
+  .sumline { font-size: .88rem; color: var(--muted); }
+  .sumline b { color: var(--ink); }
+  .day { font-family: var(--body); font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 8px 2px -4px; }
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+  details.tx + details.tx { border-top: 1px solid var(--line); }
+  details.tx > summary { list-style: none; cursor: pointer; padding: 11px 14px; display: flex; flex-direction: column; gap: 4px; }
+  details.tx > summary::-webkit-details-marker { display: none; }
+  details.tx > summary:hover { background: var(--sunk); }
+  details.tx[open] { background: var(--field); }
+  .tx-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .tx-name { font-weight: 600; overflow-wrap: anywhere; }
+  .tx-amt { font-weight: 600; }
+  .tx-amt.in { color: var(--pos); }
+  .tx-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .manual { font-size: .75rem; color: var(--muted); }
+  .noteline { font-size: .85rem; color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
+  .noteline svg { width: 12px; height: 12px; flex: none; position: relative; top: 1px; fill: none; stroke: currentColor; stroke-width: 2; }
+  .tx-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .raw { font-family: var(--mono); font-size: .8rem; background: var(--card); border: 1px dashed var(--faint); border-radius: 8px; padding: 7px 9px; overflow-wrap: anywhere; }
+  .meta { font-size: .82rem; color: var(--muted); }
+  .formrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; }
+  .formrow label { grid-column: 1 / -1; font-size: .78rem; font-weight: 600; color: var(--muted); }
+  .formrow select, .formrow input { width: 100%; min-width: 0; }
+  .links { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; font-size: .88rem; }
+  .links a { font-weight: 600; }
+  .linkbtn { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--pen); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  .more { margin-top: 4px; }
+{% endblock %}
+
+{% block content %}
+{% set back_fields %}
+  {% if filters.q %}<input type="hidden" name="q" value="{{ filters.q }}">{% endif %}
+  {% if filters.mes %}<input type="hidden" name="mes" value="{{ filters.mes }}">{% endif %}
+  {% if filters.cat %}<input type="hidden" name="cat" value="{{ filters.cat }}">{% endif %}
+{% endset %}
+<div class="movements">
+  <h1>Movimientos</h1>
+
+  {% if ok == 'categoria' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>Categoría cambiada. Queda puesta a mano: ninguna regla la volverá a cambiar.</span></div>
+  {% elif ok == 'nota' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>Nota guardada.</span></div>
+  {% elif ok == 'nota_borrada' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>Nota borrada.</span></div>
+  {% elif ok == 'automatica' %}<div class="alert success" role="status"><svg aria-hidden="true"><use href="#s-good"/></svg><span>El movimiento vuelve a la categoría que dicen las reglas.</span></div>
+  {% elif ok == 'no_encontrado' %}<div class="alert error" role="alert"><svg aria-hidden="true"><use href="#s-over"/></svg><span>No se ha encontrado ese movimiento. Puede que se haya borrado su mes.</span></div>
+  {% endif %}
+
+  <form class="searchbar" method="get" action="/movimientos" role="search">
+    <input type="search" name="q" value="{{ filters.q }}" maxlength="80" placeholder="Comercio, concepto, nota o importe" aria-label="Buscar movimientos">
+    {% if filters.cat %}<input type="hidden" name="cat" value="{{ filters.cat }}">{% endif %}
+    <button class="btn" type="submit">Buscar</button>
+  </form>
+
+  <form class="filters" id="filters" method="get" action="/movimientos">
+    {% if filters.q %}<input type="hidden" name="q" value="{{ filters.q }}">{% endif %}
+    <label class="sr-only" for="f-mes">Mes</label>
+    <select id="f-mes" name="mes" class="{{ 'on' if month }}">
+      <option value="todos" {{ 'selected' if not month }}>Todos los meses</option>
+      {% for m in months %}<option value="{{ m }}" {{ 'selected' if m == month }}>{{ m | month_label | capitalize }}</option>{% endfor %}
+    </select>
+    <label class="sr-only" for="f-cat">Categoría</label>
+    <select id="f-cat" name="cat" class="{{ 'on' if filters.cat }}">
+      <option value="">Todas las categorías</option>
+      {% for c in categories %}<option value="{{ c }}" {{ 'selected' if c == filters.cat }}>{{ c }}</option>{% endfor %}
+    </select>
+    <noscript><button class="btn" type="submit">Aplicar</button></noscript>
+    {% if filters.q or filters.cat or filters.mes %}<a class="clear" href="/movimientos">Quitar filtros</a>{% endif %}
+  </form>
+
+  <p class="sumline" role="status">
+    <b>{{ count }} movimiento{{ 's' if count != 1 }}</b>
+    {%- if filters.q %} con «{{ filters.q }}»{% endif %}
+    {%- if expense %} · salen <b class="num">{{ expense | eur }}</b>{% endif %}
+    {%- if income %} · entran <b class="num">{{ income | eur }}</b>{% endif %}
+  </p>
+
+  {% for g in groups %}
+  <h2 class="day">{{ g.date | day_label }}</h2>
+  <div class="list">
+    {% for tx in g.transactions %}
+    {% set anchor = tx.id | tx_anchor %}
+    <details class="tx" id="{{ anchor }}" {{ 'open' if anchor == ver }}>
+      <summary>
+        <span class="tx-top">
+          <span class="tx-name">{{ tx | nice_name }}</span>
+          <span class="tx-amt num {{ 'in' if tx.amount > 0 }}">{{ '+' if tx.amount > 0 }}{{ tx.amount | eur }}</span>
+        </span>
+        <span class="tx-meta">
+          {% if tx.category_source == 'none' %}<span class="pill warn">Por revisar</span>
+          {% else %}<span class="pill">{{ tx.category }}</span>{% endif %}
+          {% if tx.category_source == 'user' %}<span class="manual">puesta a mano</span>{% endif %}
+        </span>
+        {% if tx.note %}<span class="noteline"><svg aria-hidden="true" viewBox="0 0 12 12"><path d="M2 10h2l5.5-5.5-2-2L2 8z"/></svg><span>{{ tx.note }}</span></span>{% endif %}
+      </summary>
+      <div class="tx-body">
+        <div class="raw">{{ tx.concept }}</div>
+        <p class="meta">{{ tx.date | short_date }}{% if tx.details %} · {{ tx.details }}{% endif %}{% if tx.balance is not none %} · saldo después {{ tx.balance | eur }}{% endif %}</p>
+
+        <form method="post" action="/movimientos/categoria" class="formrow">
+          <input type="hidden" name="tx_id" value="{{ tx.id }}">{{ back_fields }}
+          <label for="c-{{ anchor }}">Categoría</label>
+          <select id="c-{{ anchor }}" name="category">
+            {% for c in categories %}<option value="{{ c }}" {{ 'selected' if c == tx.category }}>{{ c }}</option>{% endfor %}
+          </select>
+          <button class="btn" type="submit">Cambiar</button>
+        </form>
+
+        <form method="post" action="/movimientos/nota" class="formrow">
+          <input type="hidden" name="tx_id" value="{{ tx.id }}">{{ back_fields }}
+          <label for="n-{{ anchor }}">Nota</label>
+          <input type="text" id="n-{{ anchor }}" name="note" value="{{ tx.note or '' }}" maxlength="140" placeholder="Añade una nota" autocomplete="off">
+          <button class="btn" type="submit">Guardar</button>
+        </form>
+
+        <div class="links">
+          <a href="/revisar?{{ {'q': tx.merchant or tx.concept} | urlencode }}">Crear una regla para {{ tx.merchant or tx.concept }} →</a>
+          {% if tx.category_source == 'user' %}
+          <form method="post" action="/movimientos/automatica">
+            <input type="hidden" name="tx_id" value="{{ tx.id }}">{{ back_fields }}
+            <button class="linkbtn" type="submit">Volver a la categoría automática</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">
+    {% if not has_data %}Todavía no hay movimientos. <a href="/upload">Subid el primer extracto</a>.
+    {% elif filters.q %}No hay movimientos con «{{ filters.q }}»{% if month %} en {{ month | month_label }}. <a href="/movimientos?{{ {'q': filters.q, 'mes': 'todos'} | urlencode }}">Buscar en todos los meses</a>{% else %}.{% endif %}
+    {% elif month %}No hay movimientos en {{ month | month_label }}{% if filters.cat %} de {{ filters.cat }}{% endif %}.
+    {% else %}No hay movimientos{% if filters.cat %} de {{ filters.cat }}{% endif %}.{% endif %}
+  </p>
+  {% endfor %}
+
+  {% if more %}
+  <a class="btn btn-block more" href="{{ more_url }}">Mostrar {{ [more, step] | min }} más</a>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Filters apply as soon as they change (the Aplicar button covers no-JS).
+  document.querySelectorAll('#filters select').forEach((s) => s.addEventListener('change', () => s.form.submit()));
+</script>
+{% endblock %}

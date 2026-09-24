@@ -162,3 +162,83 @@ def test_rows_without_a_date_stay_in_their_month():
     (september,) = lg.month_summaries(ledger)
     assert september["month"] == "2026-09" and len(september["transactions"]) == 3
     assert lg.delete_month(ledger, "2026-09") == 3
+
+
+# ── Movimientos: search, notes, back to automatic ───────────────────────────
+
+def _searchable_ledger():
+    ledger = lg.new_ledger()
+    lg.import_transactions(ledger, xlsx([
+        row("2026-08-30", "COMPRA EN MERCADONA MADRID", -45.3, 900),
+        row("2026-09-19", "COMPRA EN MERCADONA MADRID", -57.0, 843),
+        row("2026-09-20", "BAR LA ESQUINA", -57.0, 786),
+        row("2026-09-21", "TRANSFERENCIA RECIBIDA ROCÍO", 1300, 2086),
+    ]))
+    return ledger
+
+
+def test_search_by_text_ignores_case_and_accents_and_sorts_newest_first():
+    ledger = _searchable_ledger()
+    assert [t["date"] for t in lg.search(ledger, query="mercadona")] == ["2026-09-19", "2026-08-30"]
+    assert [t["concept"] for t in lg.search(ledger, query="rocio")] == ["TRANSFERENCIA RECIBIDA ROCÍO"]
+    assert lg.search(ledger, query="zzz") == []
+    assert len(lg.search(ledger)) == 4
+
+
+def test_search_by_amount_matches_debits_and_credits():
+    ledger = _searchable_ledger()
+    assert {t["concept"] for t in lg.search(ledger, query="57")} == {"COMPRA EN MERCADONA MADRID", "BAR LA ESQUINA"}
+    assert [t["date"] for t in lg.search(ledger, query="45,30")] == ["2026-08-30"]
+    assert [t["amount"] for t in lg.search(ledger, query="1.300")] == [1300]
+
+
+def test_search_filters_by_month_and_category():
+    ledger = _searchable_ledger()
+    september = lg.search(ledger, month="2026-09")
+    assert [t["date"] for t in september] == ["2026-09-21", "2026-09-20", "2026-09-19"]
+    groceries = lg.search(ledger, category="Supermercado")
+    assert len(groceries) == 2
+    assert lg.search(ledger, query="mercadona", month="2026-08", category="Supermercado")[0]["amount"] == -45.3
+
+
+def test_query_amount():
+    assert lg.query_amount("45,30") == 45.3
+    assert lg.query_amount("−12,00 €") == 12.0
+    assert lg.query_amount("1.234,56") == 1234.56
+    assert lg.query_amount("1.500") == 1500.0
+    assert lg.query_amount("mercadona") is None
+    assert lg.query_amount("12,345") is None
+
+
+def test_notes_are_trimmed_searchable_removable_and_survive_reimports():
+    ledger = _searchable_ledger()
+    tx = lg.search(ledger, query="esquina")[0]
+    assert lg.set_note(ledger, tx["id"], "  Cena   con los de la uni ") is tx
+    assert tx["note"] == "Cena con los de la uni"
+    assert lg.search(ledger, query="UNI") == [tx]
+
+    lg.import_transactions(ledger, xlsx([row("2026-09-20", "BAR LA ESQUINA", -57.0, 786)]))
+    stored = lg.find(ledger, tx["id"])
+    assert stored is not None and stored["note"] == "Cena con los de la uni"
+
+    lg.set_note(ledger, tx["id"], "x" * 500)
+    assert len(tx["note"]) == lg.NOTE_MAX
+    lg.set_note(ledger, tx["id"], "   ")
+    assert "note" not in tx
+    assert lg.set_note(ledger, "no-existe", "hola") is None
+
+
+def test_reset_category_goes_back_to_the_rules():
+    ledger = _searchable_ledger()
+    tx = lg.search(ledger, query="esquina")[0]
+    assert tx["category"] == "Restaurantes"
+    lg.set_category(ledger, tx["id"], "Ocio/Cultura")
+    assert (tx["category"], tx["category_source"]) == ("Ocio/Cultura", cat.SOURCE_USER)
+
+    rules = [{"pattern": "BAR LA ESQUINA", "category": "Cafés y Snacks"}]
+    lg.reset_category(ledger, tx["id"], rules)
+    assert (tx["category"], tx["category_source"]) == ("Cafés y Snacks", cat.SOURCE_RULE)
+
+    lg.reset_category(ledger, tx["id"], [])  # not set by hand: nothing to undo
+    assert tx["category"] == "Cafés y Snacks"
+    assert lg.reset_category(ledger, "no-existe", []) is None

@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}{{ detail.name }}{% endblock %}
+{% block wrap %}narrow{% endblock %}
+{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>{% endblock %}
+{% block style %}
+  .category { display: flex; flex-direction: column; gap: 16px; max-width: 760px; margin: 0 auto; }
+  .category h1 { margin-top: -8px; }
+  .lk { width: 14px; height: 0; border-top: 2px dashed var(--muted); display: inline-block; margin-right: 6px; vertical-align: middle; }
+  .merchants { display: flex; flex-direction: column; }
+  .merchant { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; padding: 9px 0; }
+  .merchant + .merchant { border-top: 1px solid var(--line); }
+  .merchant .n { font-weight: 600; overflow-wrap: anywhere; }
+  .merchant .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .merchant .t { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: .8rem; color: var(--muted); }
+  .merchant .t i { display: block; height: 6px; border-radius: 3px; background: var(--c-fixed); flex: none; }
+{% endblock %}
+
+{% block content %}
+<div class="category">
+  <a class="back" href="/analisis?periodo={{ period.key }}">‹ Análisis</a>
+  <h1>{{ detail.name }}</h1>
+
+  <nav class="periods" aria-label="Periodo">
+    {% for o in period.options %}
+    <a class="period" href="/analisis/categoria?{{ {'nombre': detail.name, 'periodo': o.key} | urlencode }}"{% if o.key == period.key %} aria-current="page"{% endif %}>{{ o.label }}</a>
+    {% endfor %}
+  </nav>
+
+  <div class="tiles three">
+    <div class="tile">
+      <span class="label">Media al mes</span>
+      <span class="value">{{ detail.average | eur(0) if detail.average is not none else '—' }}</span>
+      {% if detail.average is none %}<span class="sub">sin meses cerrados</span>{% endif %}
+    </div>
+    <div class="tile">
+      <span class="label">Presupuesto</span>
+      {% if detail.budget %}
+      <span class="value">{{ detail.budget | eur(0) }}</span>
+      {% if detail.fixed %}<span class="sub">fijo</span>{% endif %}
+      {% else %}
+      <span class="value">—</span>
+      <span class="sub"><a href="/ajustes#presupuesto">Ponerle uno</a></span>
+      {% endif %}
+    </div>
+    <div class="tile">
+      {% if detail.budget and detail.closed %}
+      <span class="label">Por encima</span>
+      <span class="value">{{ detail.months_over }} de {{ detail.closed }}</span>
+      <span class="sub">mes{{ 'es' if detail.closed != 1 }}</span>
+      {% else %}
+      <span class="label">En el periodo</span>
+      <span class="value">{{ detail.total | eur(0) }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <section class="card" aria-labelledby="t-months">
+    <div class="card-title">
+      <h2 id="t-months">Cada mes</h2>
+      {% if detail.budget %}<span class="aside"><i class="lk" aria-hidden="true"></i>presupuesto {{ detail.budget | eur(0) }}</span>{% endif %}
+    </div>
+    <div class="chart-box short"><canvas id="categoryChart" role="img" aria-label="Gasto de {{ detail.name }} cada mes{% if detail.budget %}, con la línea del presupuesto{% endif %}. Los datos están en la tabla de debajo."></canvas></div>
+    <details class="data">
+      <summary>Ver los datos en tabla</summary>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Mes</th><th class="r">Gasto</th>{% if detail.budget %}<th class="r">Frente al presupuesto</th>{% endif %}</tr></thead>
+          <tbody>
+            {% for v in detail["values"] %}
+            <tr>
+              <td>{{ v.month | month_label | capitalize }}{% if v.in_progress %} (a medias){% endif %}</td>
+              <td class="r">{{ v.value | eur(0) }}</td>
+              {% if detail.budget %}<td class="r">{% set diff = v.value - detail.budget %}{{ '+' if diff > 0 }}{{ diff | eur(0) }}</td>{% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <section class="card" aria-labelledby="t-where">
+    <div class="card-title"><h2 id="t-where">Dónde</h2><span class="aside">{{ period.label | lower if period.key == '12m' else period.label }} · {{ detail.total | eur(0) }}</span></div>
+    <div class="merchants">
+      {% for m in detail.merchants %}
+      <div class="merchant">
+        <span class="n">{{ {'merchant': m.merchant} | nice_name }}</span>
+        <span class="v">{{ m.total | eur(0) }}</span>
+        <span class="t"><i style="width: {{ m.fill }}%"></i></span>
+        <span class="t">{{ m.count }} {{ 'vez' if m.count == 1 else 'veces' }}</span>
+      </div>
+      {% else %}
+      <p class="empty">No hay movimientos de {{ detail.name }} en este periodo.</p>
+      {% endfor %}
+      {% if detail.others %}
+      <div class="merchant">
+        <span class="n">Otros {{ detail.others.places }} sitio{{ 's' if detail.others.places != 1 }}</span>
+        <span class="v">{{ detail.others.total | eur(0) }}</span>
+        <span class="t">{{ detail.others.count }} {{ 'vez' if detail.others.count == 1 else 'veces' }}</span>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <a class="btn btn-primary btn-block" href="{{ movements_url }}">Ver los movimientos de {{ detail.name }}</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const data = {{ chart | tojson }};
+  const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const euro = (v) => `${Math.round(v).toLocaleString('es-ES')} €`;
+  function fade(hex, alpha) {
+    let h = hex.replace('#', '');
+    if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+    const n = parseInt(h, 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  }
+
+  let chart = null;
+  function buildChart() {
+    if (chart) chart.destroy();
+    const muted = token('--muted'), grid = token('--grid'), color = token('--c-var');
+    Chart.defaults.color = muted;
+    Chart.defaults.font.family = token('--body');
+    Chart.defaults.plugins.colors.enabled = false;
+    const datasets = [{
+      label: data.name, data: data.values, maxBarThickness: 24, borderRadius: 4, borderSkipped: 'start',
+      backgroundColor: data.inProgress.map((p) => (p ? fade(color, 0.4) : color)),
+    }];
+    if (data.budget) {
+      datasets.push({
+        type: 'line', label: 'Presupuesto', data: data.labels.map(() => data.budget), borderColor: muted,
+        borderDash: [4, 3], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0,
+      });
+    }
+    chart = new Chart(document.getElementById('categoryChart'), {
+      type: 'bar',
+      data: { labels: data.labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => [].concat(data.labels[items[0].dataIndex]).join(' ')
+                + (data.inProgress[items[0].dataIndex] ? ' (a medias)' : ''),
+              label: (ctx) => ` ${ctx.dataset.label}: ${euro(ctx.parsed.y)}`,
+            },
+          },
+        },
+        scales: {
+          x: { grid: { display: false }, border: { color: grid }, ticks: { maxRotation: 0, autoSkipPadding: 8 } },
+          y: { beginAtZero: true, grid: { color: grid }, border: { display: false }, ticks: { callback: (v) => euro(v) } },
+        },
+      },
+    });
+  }
+  buildChart();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', buildChart);
+</script>
+{% endblock %}

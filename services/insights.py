@@ -39,8 +39,9 @@ def _icon(cat: str) -> str:
 
 def generate(sorted_months: list[dict[str, Any]]) -> list[Insight]:
     """
-    sorted_months: list of month dicts ordered oldest → newest,
-    each with keys: month, summary, income, total_expense, balance.
+    sorted_months: closed months only (a month in progress would skew every
+    comparison), ordered oldest → newest, each with keys: month, summary,
+    income, total_expense, balance.
     """
     if not sorted_months:
         return []
@@ -181,7 +182,7 @@ def generate(sorted_months: list[dict[str, Any]]) -> list[Insight]:
 
     # ── 5. Best month callout (≥3 months of data) ─────────────────────────
     if len(sorted_months) >= 3:
-        best = max(sorted_months[:-1], key=lambda m: m["balance"])
+        best = max(sorted_months, key=lambda m: m["balance"])
         overall_avg = sum(m["balance"] for m in sorted_months) / len(sorted_months)
         if best["balance"] > 0 and best["balance"] > overall_avg:
             insights.append({

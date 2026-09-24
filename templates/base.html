@@ -21,6 +21,7 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <defs>
     <symbol id="t-home" viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5.5 9.5V20h13V9.5"/></symbol>
+    <symbol id="t-list" viewBox="0 0 24 24"><path d="M8.5 6H20M8.5 12H20M8.5 18H20"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></symbol>
     <symbol id="t-review" viewBox="0 0 24 24"><path d="M4 13l2.5-8h11L20 13v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/></symbol>
     <symbol id="t-chart" viewBox="0 0 24 24"><path d="M5 20V11M12 20V5M19 20v-6"/></symbol>
     <symbol id="t-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v4.5h16V15"/></symbol>
@@ -33,15 +34,15 @@
 </svg>
 
 {% set nav_items = [
-  ("/", "home.html", "Inicio", "t-home"),
-  ("/revisar", "review.html", "Revisar", "t-review"),
-  ("/analisis", "dashboard.html", "Análisis", "t-chart"),
-  ("/upload", "upload.html", "Subir", "t-upload"),
-  ("/ajustes", "settings.html", "Ajustes", "t-gear"),
+  ("/", ["home.html"], "Inicio", "t-home"),
+  ("/movimientos", ["movements.html"], "Movimientos", "t-list"),
+  ("/revisar", ["review.html"], "Revisar", "t-review"),
+  ("/analisis", ["analysis.html", "category.html"], "Análisis", "t-chart"),
+  ("/upload", ["upload.html"], "Subir", "t-upload"),
 ] %}
 {% macro nav_links() %}
-  {% for href, name, label, icon in nav_items %}
-  <a href="{{ href }}"{% if page == name %} aria-current="page"{% endif %}>
+  {% for href, names, label, icon in nav_items %}
+  <a href="{{ href }}"{% if page in names %} aria-current="page"{% endif %}>
     <svg aria-hidden="true"><use href="#{{ icon }}"/></svg><span>{{ label }}</span>
     {%- if href == "/revisar" and review_count %}<span class="count" title="Movimientos por revisar">{{ review_count }}</span>{% endif %}
   </a>
@@ -52,6 +53,9 @@
   <div class="topbar-in">
     <a class="brand" href="/">Gastos<span>.</span></a>
     <nav class="nav" aria-label="Secciones">{{ nav_links() }}</nav>
+    <a class="settings-link" href="/ajustes" title="Ajustes"{% if page == "settings.html" %} aria-current="page"{% endif %}>
+      <svg aria-hidden="true"><use href="#t-gear"/></svg><span class="sr-only">Ajustes</span>
+    </a>
     <a class="logout" href="/logout">Salir</a>
   </div>
 </header>
