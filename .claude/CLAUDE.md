@@ -9,15 +9,17 @@ connection (Enable Banking) is planned for a later version.
 
 ## Architecture
 
-- **`main.py`** — single FastAPI file. Routes: `/` (dashboard), `/upload`, `/delete-month`, `/revisar` (+ `/revisar/regla`, `/revisar/movimiento`, `/revisar/regla/borrar`), `/login`, `/logout`, `/api/data`, `/healthz`. `/corrections` redirects to `/revisar`. Also holds security: login rate limiting, same-origin check on POSTs, security headers, fail-fast secrets in production.
+- **`main.py`** — single FastAPI file. Routes: `/` (Inicio, `?mes=YYYY-MM` for other months), `/analisis` (the charts dashboard), `/ajustes` (+ `/ajustes/presupuestos`, `/ajustes/objetivos`; `?sugerir=1` pre-fills budgets with averages), `/upload`, `/delete-month`, `/revisar` (+ `/revisar/regla`, `/revisar/movimiento`, `/revisar/regla/borrar`), `/login`, `/logout`, `/api/data`, `/healthz`. `/corrections` redirects to `/revisar`. Also holds security: login rate limiting, same-origin check on POSTs, security headers, fail-fast secrets in production. "Today" is Europe/Madrid (`_today()`).
 - **`services/categorizer.py`** — `classify()` decides a category from concept + amount sign (+ details; counterparty and MCC when a movement carries them). Order: user rules (longest pattern) → income keywords (credits only) → built-in keywords (whole words, longest wins, `~` weak, `*` prefix) → MCC → fallback (credit = Ingresos, debit = Otros needing review). `merchant_key()` gives the short merchant name used for grouping and rule suggestions.
 - **`services/ledger.py`** — pure functions over the ledger: stable ids for statement rows, `import_transactions()` with dedupe (same id; also the same movement from another source or under a changed id, ready for a future bank feed), `apply_rules()`, monthly `summarize()`/`month_summaries()` (refunds reduce their category; only Ingresos is income), review groups.
+- **`services/budget.py`** — pure functions for budgets and goals: `settings_view()` (defaults, drops junk), `month_overview()` (everything Inicio shows: pace against the last movement, meter states ok/warn/over, fixed bills, projected saving, fund), `suggest_budgets()` (last 3 complete months, rounded up to 10 €), `fund_progress()` (positive balances of the closed months of the year), `parse_amount()` for Spanish-format form input.
 - **`services/parser.py`** — BBVA XLSX parser → rows (no month). Auto-detects the header row; picks columns left to right exactly like v1 so ids stay stable. `_parse_amount()` handles Spanish number format (1.234,56).
 - **`services/storage.py`** — S3 or local-folder backend (`STORAGE_BACKEND=local`) with ETag conditional writes (`ConflictError`).
-- **`services/repo.py`** — load/update of `ledger.json` and `rules.json` with retry on conflict; migrates v1 files on first read; archives uploaded statements.
+- **`services/repo.py`** — load/update of `ledger.json`, `rules.json` and `settings.json` with retry on conflict; migrates v1 files on first read; archives uploaded statements.
 - **`services/migration.py`** — v1 (`data.json` + `merchant_rules.json`) → v2. Keeps rules and manual overrides, recategorises the rest, stores a report in `ledger.meta.migration`.
 - **`services/insights.py`** — generates up to 6 dynamic insight cards from monthly data (MoM deltas, streaks, savings trajectory, best month).
-- **`templates/`** — Jinja2 HTML extending `base.html` (nav, review badge). Chart.js loaded from CDN. No build step, no Node.
+- **`templates/`** — Jinja2 HTML extending `base.html` (top nav on desktop, bottom tab bar on phones, review badge): `home.html` (Inicio), `settings.html` (Ajustes), `dashboard.html` (Análisis), `review.html`, `upload.html`, `login.html`. Chart.js loaded from CDN. No build step, no Node.
+- **`static/app.css`** — shared styles and colour tokens, light by default and dark with the OS setting. Meter state colours and the 8 chart slots were checked for colour-blind separation; keep new colours as tokens there. Charts read the tokens (`--series-1..8`, `--series-rest`) and fold categories beyond the 8th into "Resto".
 - **`tests/`** — pytest suite; runs offline with local storage.
 
 ## Data model
@@ -36,6 +38,15 @@ S3 `ledger.json` (every movement once; months are computed from dates):
 }
 ```
 Ids: `x:` Excel rows (hash of date, amount, balance); other sources would use their own prefix, and duplicates found under another id are kept once with the extra id in `alt_ids`. `category_source`: `user` (set by hand, never overwritten), `rule`, `income`, `keyword`, `mcc`, `default`, `none` (= needs review).
+
+S3 `settings.json` (optional; defaults apply until it is saved from Ajustes):
+```json
+{"version": 1, "budgets": {"Supermercado": 450, "Alquiler": 850},
+ "fixed_categories": ["Alquiler", "Suministros", "Telefonía", "Seguros"],
+ "goals": {"monthly_saving": 200, "annual_fund": 2400, "fund_name": "Fondo común", "fund_note": "Viajes · Hogar · Ocio"},
+ "updated_at": "…"}
+```
+Budgets are euros per month for every month; Ingresos, Otros and Ajustes de cuenta never get one.
 
 S3 `rules.json`:
 ```json

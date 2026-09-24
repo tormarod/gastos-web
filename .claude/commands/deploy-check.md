@@ -10,7 +10,7 @@ Check each item and report pass / fail / warning:
 - [ ] `__pycache__/`, `*.pyc` and `.data/` are gitignored
 
 **Templates**
-- [ ] `dashboard.html` has no hardcoded amounts — all data comes from Jinja2 variables
+- [ ] `home.html` and `dashboard.html` have no hardcoded amounts or goals — budgets and goals come from `settings.json` via Ajustes
 - [ ] `upload.html` form posts to `/upload` with `enctype="multipart/form-data"` and a `files` input with `multiple`
 - [ ] Every page except `login.html` extends `base.html` (navigation, review badge)
 - [ ] Statement text inserted from JavaScript goes through `esc()` (no raw `innerHTML` with concepts)

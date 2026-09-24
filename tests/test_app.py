@@ -1,7 +1,7 @@
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,7 +33,7 @@ SEPTEMBER = [
 
 def test_pages_require_login():
     c = TestClient(main.app)
-    for path in ("/", "/upload", "/revisar", "/api/data"):
+    for path in ("/", "/analisis", "/ajustes", "/upload", "/revisar", "/api/data"):
         response = c.get(path, follow_redirects=False)
         assert (response.status_code, response.headers["location"]) == (303, "/login")
 
@@ -52,6 +52,13 @@ def test_login_is_rate_limited():
     main._login_failures.clear()
 
 
+def test_posts_need_login_too():
+    c = TestClient(main.app)
+    for path in ("/ajustes/presupuestos", "/ajustes/objetivos"):
+        response = c.post(path, data={"categoria": "Hogar", "importe": "10"}, follow_redirects=False)
+        assert (response.status_code, response.headers["location"]) == (303, "/login")
+
+
 def test_upload_import_and_dashboard(client):
     first = upload(client, SEPTEMBER)
     assert first.status_code == 303
@@ -59,7 +66,7 @@ def test_upload_import_and_dashboard(client):
     again = upload(client, SEPTEMBER)
     assert "added=0" in again.headers["location"] and "dup=3" in again.headers["location"]
 
-    page = client.get("/")
+    page = client.get("/analisis")
     assert page.status_code == 200
     assert "Plan Financiero 2026" in page.text
     assert "<script>alert(1)</script>" not in page.text  # statement text is escaped everywhere
@@ -128,3 +135,101 @@ def test_production_refuses_to_start_without_secrets():
     result = subprocess.run([sys.executable, "-c", "import main"], cwd=ROOT, env=env, capture_output=True, text=True)
     assert result.returncode != 0
     assert "SECRET_KEY" in result.stderr
+
+
+@pytest.fixture
+def today(monkeypatch):
+    monkeypatch.setattr(main, "_today", lambda: date(2026, 9, 24))
+    return date(2026, 9, 24)
+
+
+AUGUST = [
+    bbva_row(datetime(2026, 8, 30), "MERCADONA VALENCIA", -431.0, 2000.0),
+    bbva_row(datetime(2026, 8, 3), "ALQUILER PISO", -850.0, 2431.0, movement="Transferencia realizada"),
+    bbva_row(datetime(2026, 8, 1), "Rodrigo", 1500, 3281.0, movement="Transferencia recibida"),
+]
+
+
+def test_home_without_budget_invites_to_create_one(client, today):
+    upload(client, SEPTEMBER + AUGUST)
+    page = client.get("/")
+    assert page.status_code == 200
+    assert "Septiembre 2026" in page.text and "Poneos un presupuesto" in page.text
+    assert "Datos hasta el 20 sep" in page.text
+    assert "<script>alert" not in page.text
+    assert 'href="/?mes=2026-08"' in page.text
+
+    august = client.get("/", params={"mes": "2026-08"})
+    assert "Agosto 2026" in august.text and "Mes completo" in august.text
+    assert "Septiembre 2026" in client.get("/", params={"mes": "2031-01"}).text
+    assert "Septiembre 2026" in client.get("/", params={"mes": "basura"}).text
+
+
+def test_home_warns_when_data_is_old(client, today):
+    upload(client, AUGUST)
+    page = client.get("/")
+    assert "Los últimos datos son del <b>30 ago</b>, hace 25 días." in page.text
+
+
+def test_budget_suggestion_save_and_home(client, today):
+    upload(client, SEPTEMBER + AUGUST)
+    suggested = client.get("/ajustes", params={"sugerir": "1"})
+    assert "Propuesta con la media de agosto" in suggested.text
+    assert 'value="440"' in suggested.text  # 431 € of supermarket in August, rounded up
+
+    form = {"categoria": ["Supermercado", "Alquiler", "Hogar"], "importe": ["440", "850", ""], "fijo": ["Alquiler"]}
+    saved = client.post("/ajustes/presupuestos", data=form, follow_redirects=False)
+    assert saved.headers["location"] == "/ajustes?ok=presupuesto"
+    stored = repo.load_settings()
+    assert stored["budgets"] == {"Alquiler": 850.0, "Supermercado": 440.0}
+    assert stored["fixed_categories"] == ["Alquiler"]
+
+    home = client.get("/")
+    assert "de presupuesto" in home.text and "Por categoría" in home.text
+    assert "Supermercado" in home.text and "Ritmo de los variables" in home.text
+    assert "Poneos un presupuesto" not in home.text
+
+
+def test_budget_form_validation(client):
+    bad_amount = client.post("/ajustes/presupuestos", data={"categoria": "Hogar", "importe": "-5"},
+                             follow_redirects=False)
+    assert bad_amount.headers["location"] == "/ajustes?error=importe&cat=Hogar"
+    unknown = client.post("/ajustes/presupuestos", data={"categoria": "Inventada", "importe": "5"})
+    assert unknown.status_code == 400
+    not_budgetable = client.post("/ajustes/presupuestos", data={"categoria": "Otros", "importe": "5"})
+    assert not_budgetable.status_code == 400
+    bad_fixed = client.post("/ajustes/presupuestos",
+                            data={"categoria": "Hogar", "importe": "5", "fijo": "Ingresos"})
+    assert bad_fixed.status_code == 400
+    mismatched = client.post("/ajustes/presupuestos", data={"categoria": ["Hogar", "Salud"], "importe": "5"})
+    assert mismatched.status_code == 400
+    assert repo.load_settings() == {"version": 1}  # nothing was saved
+    assert "no es válido" in client.get("/ajustes", params={"error": "importe", "cat": "Hogar"}).text
+
+
+def test_goals_are_editable_and_used_by_the_analysis(client, today):
+    saved = client.post("/ajustes/objetivos", data={
+        "monthly_saving": "250", "annual_fund": "3.000", "fund_name": "Viaje a Japón", "fund_note": "Primavera",
+    }, follow_redirects=False)
+    assert saved.headers["location"] == "/ajustes?ok=objetivos"
+    goals = repo.load_settings()["goals"]
+    assert goals == {"monthly_saving": 250.0, "annual_fund": 3000.0, "fund_name": "Viaje a Japón", "fund_note": "Primavera"}
+
+    bad = client.post("/ajustes/objetivos", data={"monthly_saving": "mucho", "annual_fund": "1"},
+                      follow_redirects=False)
+    assert bad.headers["location"] == "/ajustes?error=objetivos"
+
+    upload(client, SEPTEMBER + AUGUST)
+    analysis = client.get("/analisis").text
+    assert "Viaje a Japón 2026" in analysis and "3.000\u00a0€" in analysis and "250\u00a0€" in analysis
+    settings_page = client.get("/ajustes").text
+    assert 'value="3000"' in settings_page and 'value="Viaje a Japón"' in settings_page
+
+
+def test_every_page_renders(client, today):
+    upload(client, SEPTEMBER + AUGUST)
+    for path in ("/", "/analisis", "/ajustes", "/upload", "/revisar", "/login"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert "/static/app.css?v=" in response.text
+    assert client.get("/static/app.css").status_code == 200

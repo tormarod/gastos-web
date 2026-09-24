@@ -2,88 +2,65 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}Gastos{% endblock %} — Rodrigo & Rocío</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1A1D26" media="(prefers-color-scheme: dark)">
+<title>{% block title %}Gastos{% endblock %} · Gastos Rodrigo & Rocío</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/static/app.css?v={{ asset_version }}">
 {% block head %}{% endblock %}
 <style>
-  :root {
-    --bg: #0f1117; --surface: #1a1d27; --surface2: #222535; --border: #2e3248;
-    --accent: #6c63ff; --accent2: #00d4aa; --accent3: #ff6b6b; --accent4: #ffd93d;
-    --text: #e8eaf0; --text-muted: #8b90a8;
-    --green: #00d4aa; --red: #ff6b6b; --orange: #ff9f43; --yellow: #ffd93d;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif;
-         min-height: 100vh; padding: 24px; }
-  a { color: var(--accent); }
-
-  nav {
-    display: flex; align-items: center; gap: 20px; margin-bottom: 24px;
-    padding-bottom: 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap;
-  }
-  nav .brand { font-weight: 800; color: #fff; font-size: 1rem; margin-right: auto; }
-  nav a { color: var(--text-muted); text-decoration: none; font-size: 0.88rem; font-weight: 600;
-          display: inline-flex; align-items: center; gap: 6px; }
-  nav a.active, nav a:hover { color: var(--accent); }
-  .nav-count { background: var(--yellow); color: #1a1d27; font-size: 0.7rem; font-weight: 800;
-               border-radius: 10px; padding: 1px 7px; }
-
-  h1 { font-size: 1.4rem; font-weight: 700; color: #fff; margin-bottom: 6px; }
-  h2 { font-size: 1rem; font-weight: 600; margin-bottom: 14px; }
-  .sub { color: var(--text-muted); font-size: 0.88rem; margin-bottom: 24px; line-height: 1.5; }
-  .muted { color: var(--text-muted); }
-
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
-
-  .alert { border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.86rem; line-height: 1.5; }
-  .alert.success { background: #00d4aa15; border: 1px solid #00d4aa44; color: var(--green); }
-  .alert.error   { background: #ff6b6b15; border: 1px solid #ff6b6b44; color: var(--red); }
-  .alert.warn    { background: #ff9f4315; border: 1px solid #ff9f4344; color: var(--orange); }
-  .alert.info    { background: #6c63ff12; border: 1px solid #6c63ff33; color: var(--text); }
-  .alert a { color: inherit; font-weight: 700; }
-  .alert ul { margin: 6px 0 0 18px; }
-
-  .btn {
-    display: inline-block; padding: 8px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 700;
-    cursor: pointer; text-decoration: none; border: 1px solid var(--border);
-    background: var(--surface2); color: var(--text); transition: opacity .2s, border-color .2s;
-  }
-  .btn:hover { border-color: var(--accent); }
-  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn-primary:hover { opacity: .88; }
-  .btn-danger { background: none; border-color: #ff6b6b44; color: var(--red); }
-  .btn-danger:hover { background: #ff6b6b15; border-color: #ff6b6b88; }
-  .btn:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  input[type=text], input[type=search], select {
-    padding: 8px 10px; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; color: var(--text); font-size: 0.85rem; outline: none;
-  }
-  input[type=text]:focus, input[type=search]:focus, select:focus { border-color: var(--accent); }
-
-  .pill {
-    display: inline-block; font-size: 0.7rem; padding: 2px 8px; border-radius: 10px;
-    background: #6c63ff22; border: 1px solid #6c63ff33; color: var(--accent);
-  }
-  .pill.warn { background: #ffd93d1c; border-color: #ffd93d44; color: var(--yellow); }
-  .amount-pos { color: var(--green); font-weight: 600; }
-  .amount-neg { color: var(--red); }
-  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 {% block style %}{% endblock %}
 </style>
 </head>
 <body>
 
-<nav>
-  <span class="brand">💰 Gastos</span>
-  <a href="/" class="{{ 'active' if page == 'dashboard.html' }}">Dashboard</a>
-  <a href="/revisar" class="{{ 'active' if page == 'review.html' }}">Revisar
-    {%- if review_count %} <span class="nav-count" title="Movimientos por revisar">{{ review_count }}</span>{% endif %}</a>
-  <a href="/upload" class="{{ 'active' if page == 'upload.html' }}">Subir extracto</a>
-  <a href="/logout">Salir</a>
-</nav>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="t-home" viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5.5 9.5V20h13V9.5"/></symbol>
+    <symbol id="t-review" viewBox="0 0 24 24"><path d="M4 13l2.5-8h11L20 13v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/></symbol>
+    <symbol id="t-chart" viewBox="0 0 24 24"><path d="M5 20V11M12 20V5M19 20v-6"/></symbol>
+    <symbol id="t-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v4.5h16V15"/></symbol>
+    <symbol id="t-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></symbol>
+    <symbol id="s-good" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m4.8 8.2 2.2 2.2 4.2-4.4" stroke="#fff" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="s-warn" viewBox="0 0 16 16"><path d="M8 1.5 15 14H1z" fill="currentColor"/><path d="M8 6v3.6M8 11.6v.1" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="s-over" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M8 4.3v4.4M8 11.2v.1" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="s-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M8 7.2v4.3M8 4.6v.1" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  </defs>
+</svg>
 
+{% set nav_items = [
+  ("/", "home.html", "Inicio", "t-home"),
+  ("/revisar", "review.html", "Revisar", "t-review"),
+  ("/analisis", "dashboard.html", "Análisis", "t-chart"),
+  ("/upload", "upload.html", "Subir", "t-upload"),
+  ("/ajustes", "settings.html", "Ajustes", "t-gear"),
+] %}
+{% macro nav_links() %}
+  {% for href, name, label, icon in nav_items %}
+  <a href="{{ href }}"{% if page == name %} aria-current="page"{% endif %}>
+    <svg aria-hidden="true"><use href="#{{ icon }}"/></svg><span>{{ label }}</span>
+    {%- if href == "/revisar" and review_count %}<span class="count" title="Movimientos por revisar">{{ review_count }}</span>{% endif %}
+  </a>
+  {% endfor %}
+{% endmacro %}
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="/">Gastos<span>.</span></a>
+    <nav class="nav" aria-label="Secciones">{{ nav_links() }}</nav>
+    <a class="logout" href="/logout">Salir</a>
+  </div>
+</header>
+
+<main class="wrap {% block wrap %}{% endblock %}">
 {% block content %}{% endblock %}
+</main>
+
+<nav class="tabbar" aria-label="Secciones">{{ nav_links() }}</nav>
 
 <script>
   // Confirmation for destructive forms: <form data-confirm="…">

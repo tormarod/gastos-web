@@ -409,6 +409,11 @@ def months_overview(ledger: Ledger) -> list[dict[str, Any]]:
     return out
 
 
+def last_date(ledger: Ledger) -> str | None:
+    """Date of the newest movement: how up to date the data is."""
+    return max((str(tx["date"]) for tx in ledger["transactions"] if tx.get("date")), default=None)
+
+
 def review_count(ledger: Ledger) -> int:
     return sum(1 for tx in ledger["transactions"] if needs_review(tx))
 

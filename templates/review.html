@@ -3,69 +3,69 @@
 {% block style %}
   .grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
-  .section-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: .1em;
-                   color: var(--text-muted); font-weight: 700; margin-bottom: 14px; }
 
   .search { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
   .search input { flex: 1; min-width: 200px; }
 
   .group {
-    border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px 16px; margin-bottom: 10px; background: var(--surface2);
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 10px; background: var(--card); box-shadow: var(--shadow);
   }
   .group-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 2px; }
-  .group-name { font-size: 0.86rem; font-weight: 700; color: var(--text); word-break: break-word; }
-  .group-total { font-size: 0.82rem; color: var(--orange); font-weight: 700; }
-  .group-example { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.74rem; color: var(--text-muted);
+  .group-name { font-size: 0.86rem; font-weight: 700; color: var(--ink); word-break: break-word; }
+  .group-total { font-size: 0.82rem; color: var(--ink); font-weight: 700; }
+  .group-example { font-family: var(--mono); font-size: 0.74rem; color: var(--muted);
                    margin-bottom: 8px; word-break: break-word; }
 
   .rule-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
-  .rule-form input[type=text] { flex: 1; min-width: 140px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; }
+  .rule-form input[type=text] { flex: 1; min-width: 140px; font-family: var(--mono); font-size: 0.8rem; }
 
-  details summary { list-style: none; cursor: pointer; font-size: 0.76rem; color: var(--text-muted);
+  details summary { list-style: none; cursor: pointer; font-size: 0.76rem; color: var(--muted);
                     display: inline-flex; gap: 6px; align-items: center; }
   details summary::-webkit-details-marker { display: none; }
   details summary .chevron { font-size: 0.65rem; transition: transform .2s; display: inline-block; }
   details[open] summary .chevron { transform: rotate(90deg); }
 
   .tx-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; margin-top: 8px; }
-  .tx-table th { text-align: left; padding: 5px 6px; color: var(--text-muted); font-weight: 600; font-size: 0.7rem;
-                 text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
-  .tx-table td { padding: 5px 6px; border-bottom: 1px solid #2e324818; vertical-align: middle; }
+  .tx-table th { text-align: left; padding: 5px 6px; color: var(--muted); font-weight: 600; font-size: 0.7rem;
+                 text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--line); }
+  .tx-table td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   .tx-table tr:last-child td { border-bottom: none; }
   .tx-concept { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tx-form { display: flex; gap: 6px; align-items: center; }
   .tx-form select { padding: 4px 8px; font-size: 0.75rem; }
   .tx-form .btn { padding: 4px 10px; font-size: 0.72rem; }
-  .manual { color: var(--accent); font-size: 0.68rem; font-weight: 700; }
+  .manual { color: var(--pen); font-size: 0.68rem; font-weight: 700; }
 
   .rule-row {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 10px 14px; border-radius: 8px; background: var(--surface2);
-    border: 1px solid var(--border); margin-bottom: 8px;
+    padding: 10px 14px; border-radius: 8px; background: var(--sunk);
+    border: 1px solid var(--line); margin-bottom: 8px;
   }
-  .rule-pattern { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; color: var(--text); word-break: break-word; }
-  .rule-cat { font-size: 0.8rem; color: var(--accent); font-weight: 600; }
+  .rule-pattern { font-family: var(--mono); font-size: 0.8rem; color: var(--ink); word-break: break-word; }
+  .rule-cat { font-size: 0.8rem; color: var(--pen); font-weight: 600; }
   .rule-row .btn { padding: 3px 8px; font-size: 0.72rem; flex-shrink: 0; }
 
-  .tip { background: #6c63ff0c; border: 1px solid #6c63ff22; border-radius: 8px; padding: 10px 14px;
-         font-size: 0.78rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px; }
-  .tip b { color: var(--text); }
-  .empty { color: var(--text-muted); font-size: 0.88rem; padding: 20px 0; text-align: center; }
+  .tip { background: var(--pen-soft); border: 1px solid transparent; border-radius: 8px; padding: 10px 14px;
+         font-size: 0.78rem; color: var(--muted); line-height: 1.6; margin-bottom: 16px; }
+  .tip b { color: var(--ink); }
+  .empty { color: var(--muted); font-size: 0.88rem; padding: 20px 0; text-align: center; }
   .migration { font-size: 0.8rem; line-height: 1.6; }
   .migration ul { margin: 6px 0 0 18px; }
 {% endblock %}
 
 {% block content %}
-<h1>🏷️ Revisar</h1>
+<h1>Revisar</h1>
 <div class="sub">Lo que la app no ha sabido categorizar sola. Al guardar una regla se aplica a todos los movimientos, pasados y futuros.</div>
 
 {% set changes = '1 movimiento cambió' if changed == 1 else changed ~ ' movimientos cambiaron' %}
-{% if ok == 'regla' %}<div class="alert success">✅ Regla guardada: {{ changes }} de categoría.</div>
-{% elif ok == 'movimiento' %}<div class="alert success">✅ Movimiento actualizado.</div>
-{% elif ok == 'borrada' %}<div class="alert success">Regla eliminada: {{ changes }} de categoría.</div>
-{% elif ok == 'corto' %}<div class="alert error">El patrón es demasiado corto.</div>
-{% elif ok == 'no_encontrado' %}<div class="alert error">No se ha encontrado ese movimiento.</div>
+{% set good_icon %}<svg aria-hidden="true"><use href="#s-good"/></svg>{% endset %}
+{% set bad_icon %}<svg aria-hidden="true"><use href="#s-over"/></svg>{% endset %}
+{% if ok == 'regla' %}<div class="alert success" role="status">{{ good_icon }}<span>Regla guardada: {{ changes }} de categoría.</span></div>
+{% elif ok == 'movimiento' %}<div class="alert success" role="status">{{ good_icon }}<span>Movimiento actualizado.</span></div>
+{% elif ok == 'borrada' %}<div class="alert success" role="status">{{ good_icon }}<span>Regla eliminada: {{ changes }} de categoría.</span></div>
+{% elif ok == 'corto' %}<div class="alert error" role="alert">{{ bad_icon }}<span>El patrón es demasiado corto.</span></div>
+{% elif ok == 'no_encontrado' %}<div class="alert error" role="alert">{{ bad_icon }}<span>No se ha encontrado ese movimiento.</span></div>
 {% endif %}
 
 <div class="grid">
@@ -137,7 +137,7 @@
     {% else %}
     <div class="empty">
       {% if q %}No hay movimientos que contengan «{{ q }}».
-      {% else %}✅ No hay nada pendiente. Todos los movimientos tienen categoría.{% endif %}
+      {% else %}No hay nada pendiente. Todos los movimientos tienen categoría.{% endif %}
     </div>
     {% endif %}
   </div>

@@ -1,15 +1,15 @@
 # 💰 Gastos Web — Rodrigo & Rocío
 
 Personal finance dashboard for tracking shared expenses and savings goals.
-Imports BBVA Excel exports of the shared account, categorises every movement
-and shows it as an interactive dashboard.
+Imports BBVA Excel exports of the shared account, categorises every movement,
+and tells you at a glance whether this month is on budget.
 
 ## Stack
 
 | Layer | Tech |
 |---|---|
 | Backend | Python 3.11 + FastAPI |
-| Templates | Jinja2 + Chart.js |
+| Templates | Jinja2 + one shared stylesheet (`static/app.css`, light and dark) + Chart.js |
 | Storage | AWS S3 (JSON documents + archived statements), conditional writes |
 | Bank data | BBVA Excel exports (.xlsx) |
 | Auth | Cookie session with signed token (shared password) |
@@ -22,9 +22,10 @@ No database. All financial data lives in a few JSON files in S3.
 - **Excel import** — drop one or several BBVA `.xlsx` exports; no month to pick, overlapping statements never duplicate movements
 - **Categorisation** — sign-aware rules (a debit is never income, refunds reduce their category), whole-word keyword matching, and rules you teach it
 - **Revisar** — only what the app couldn't categorise, grouped by merchant; one rule fixes every past and future movement; search to correct anything
-- **Dashboard** — KPIs, monthly trend charts, category breakdown with drill-down, latest movements
+- **Inicio** — mobile-first home: spent this month, pace of variable spending against the budget, a meter per category (problems first), fixed bills, projected saving and the year's fund; any past month with the arrows
+- **Ajustes** — monthly budget per category (filled in from your 3-month average with one click), which categories are fixed, and the savings goals
+- **Análisis** — KPIs, monthly trend charts, category breakdown with drill-down, latest movements
 - **Dynamic insights** — spending spikes, streaks, year-end savings projection
-- **Savings goal tracker** — progress bar towards the €2,400/year shared fund
 - **Secure** — password-protected with login rate limiting, HTTPS-only cookies in production, same-origin form checks, least-privilege S3 access
 
 Connecting the bank directly (Enable Banking, PSD2) is planned for a later version.
@@ -71,26 +72,40 @@ See [`DEPLOY.md`](DEPLOY.md) for the full step-by-step guide (S3 and Render).
 1. Log in to BBVA online → download the shared account's movements as **Excel (.xlsx)**. Several months at once is fine.
 2. Open the app → **Subir extracto** → drop the file(s). No month to pick; movements already stored are skipped.
 3. When the **Revisar** badge shows a number, open it and assign a category (or save a rule).
+4. **Inicio** shows how the month is going. If the last movement is more than a week old, it reminds you to upload.
+
+## How Inicio works
+
+- **Fixed** categories (by default Alquiler, Suministros, Telefonía, Seguros; change it in Ajustes) are paid in one go, so they have no pace.
+- **Pace**: variable budget × days up to the last movement ÷ days in the month. It is measured against the last movement, not today, because what hasn't been uploaded yet can't be seen.
+- **Meters**: under 85 % is fine, 85–100 % is «Cerca del límite» (variable categories, current month only), over 100 % is «Pasado». Every state has an icon and a word, never colour alone.
+- **Projected saving**: income of the month − (for each budgeted category, the larger of its budget and what was spent + spending without a budget).
+- **Fund**: what the months already over in the year had left over.
+- **«Rellenar con la media»**: average of the last 3 complete months, rounded up to 10 €; categories under 5 € a month stay empty.
 
 ## Project structure
 
 ```
 gastos-web/
-├── main.py                  # FastAPI app — routes, auth, security, upload, review, API
+├── main.py                  # FastAPI app — routes, auth, security, upload, review, settings, API
 ├── services/
 │   ├── categorizer.py       # Rules: BBVA concept (+ amount sign) → category
 │   ├── ledger.py            # Movements: ids, import & dedupe, monthly summaries, review groups
+│   ├── budget.py            # Budgets and goals: month overview for Inicio, suggestions for Ajustes
 │   ├── parser.py            # BBVA XLSX parser (header-row auto-detection)
 │   ├── repo.py              # Load/save ledger, rules, settings; v1 → v2 migration on first read
 │   ├── migration.py         # data.json + merchant_rules.json → ledger.json + rules.json
 │   ├── storage.py           # S3 (or local folder) with ETag conditional writes
 │   └── insights.py          # Dynamic insight cards
 ├── templates/
-│   ├── base.html            # Layout and navigation
+│   ├── base.html            # Layout, top navigation and bottom tab bar on phones
+│   ├── home.html            # Inicio
+│   ├── settings.html        # Ajustes: budgets and goals
 │   ├── login.html
-│   ├── dashboard.html
+│   ├── dashboard.html       # Análisis
 │   ├── review.html          # Revisar: uncategorised movements, search, rules
 │   └── upload.html          # Excel import and saved months
+├── static/app.css           # Shared styles and colour tokens (light and dark)
 └── tests/                   # pytest suite (no network or AWS needed)
 ```
 
@@ -100,6 +115,7 @@ gastos-web/
 |---|---|
 | `ledger.json` | Every movement once: date, amount, concept, category and where it came from |
 | `rules.json` | Your rules: text pattern → category |
+| `settings.json` | Budgets per category, fixed categories and savings goals (created the first time you save Ajustes) |
 | `statements/` | Uploaded Excel files |
 | `data.json`, `merchant_rules.json` | Version 1 files, kept as a backup after the migration |
 
