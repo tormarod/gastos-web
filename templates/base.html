@@ -26,6 +26,7 @@
     <symbol id="t-chart" viewBox="0 0 24 24"><path d="M5 20V11M12 20V5M19 20v-6"/></symbol>
     <symbol id="t-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v4.5h16V15"/></symbol>
     <symbol id="t-gear" viewBox="0 0 24 24"><path d="M10.29 4.59L10.58 1.90L13.42 1.90L13.71 4.59A7.6 7.6 0 0 1 16.03 5.55L18.14 3.85L20.15 5.86L18.45 7.97A7.6 7.6 0 0 1 19.41 10.29L22.10 10.58L22.10 13.42L19.41 13.71A7.6 7.6 0 0 1 18.45 16.03L20.15 18.14L18.14 20.15L16.03 18.45A7.6 7.6 0 0 1 13.71 19.41L13.42 22.10L10.58 22.10L10.29 19.41A7.6 7.6 0 0 1 7.97 18.45L5.86 20.15L3.85 18.14L5.55 16.03A7.6 7.6 0 0 1 4.59 13.71L1.90 13.42L1.90 10.58L4.59 10.29A7.6 7.6 0 0 1 5.55 7.97L3.85 5.86L5.86 3.85L7.97 5.55A7.6 7.6 0 0 1 10.29 4.59Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="t-logout" viewBox="0 0 24 24"><path d="M13.5 4H6.5A1.5 1.5 0 0 0 5 5.5v13A1.5 1.5 0 0 0 6.5 20h7"/><path d="M10 12h10.5M17 8.5l3.5 3.5-3.5 3.5"/></symbol>
     <symbol id="s-good" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m4.8 8.2 2.2 2.2 4.2-4.4" stroke="#fff" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="s-warn" viewBox="0 0 16 16"><path d="M8 1.5 15 14H1z" fill="currentColor"/><path d="M8 6v3.6M8 11.6v.1" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/></symbol>
     <symbol id="s-over" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M8 4.3v4.4M8 11.2v.1" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></symbol>
@@ -56,7 +57,7 @@
     <a class="settings-link" href="/ajustes"{% if page == "settings.html" %} aria-current="page"{% endif %}>
       <svg aria-hidden="true"><use href="#t-gear"/></svg><span>Ajustes</span>
     </a>
-    <a class="logout" href="/logout">Salir</a>
+    <a class="logout" href="/logout"><svg aria-hidden="true"><use href="#t-logout"/></svg><span>Salir</span></a>
   </div>
 </header>
 

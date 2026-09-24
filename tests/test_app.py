@@ -238,6 +238,7 @@ def test_every_page_renders(client, today):
         assert "/static/app.css?v=" in response.text
         if path != "/login":
             assert '<span>Ajustes</span>' in response.text  # the gear always says what it is
+            assert '<span>Salir</span>' in response.text
     assert client.get("/static/app.css").status_code == 200
 
 
