@@ -9,7 +9,8 @@ S3 `ledger.json`:
      "amount": -45.3, "concept": "MERCADONA VALENCIA", "counterparty": null,
      "details": null, "balance": 1234.5, "mcc": null, "merchant": "MERCADONA",
      "category": "Supermercado", "category_source": "keyword",
-     "source": "xlsx", "imported_at": "2026-09-24T07:00:00+00:00"}
+     "source": "xlsx", "imported_at": "2026-09-24T07:00:00+00:00",
+     "note": "optional, written by you"}
   ],
   "meta": {}
 }
@@ -26,6 +27,7 @@ Months are not stored: they are computed from the movement dates.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
@@ -39,6 +41,8 @@ Ledger = dict[str, Any]
 LEDGER_VERSION = 2
 SHARED_ACCOUNT = "bbva-comun"
 MATCH_WINDOW_DAYS = 3
+NOTE_MAX = 140
+SEARCH_FIELDS = ("concept", "counterparty", "merchant", "details", "note")
 
 
 def new_ledger() -> Ledger:
@@ -175,14 +179,38 @@ def apply_rules(ledger: Ledger, rules: Iterable[Mapping[str, str]]) -> int:
     return changed
 
 
+def find(ledger: Ledger, tx_id: str) -> Transaction | None:
+    return next((tx for tx in ledger["transactions"] if tx["id"] == tx_id), None)
+
+
 def set_category(ledger: Ledger, tx_id: str, category: str) -> Transaction | None:
     """Categorise one movement by hand; later rule changes won't touch it."""
-    for tx in ledger["transactions"]:
-        if tx["id"] == tx_id:
-            tx["category"] = category
-            tx["category_source"] = cat.SOURCE_USER
-            return tx
-    return None
+    tx = find(ledger, tx_id)
+    if tx is not None:
+        tx["category"] = category
+        tx["category_source"] = cat.SOURCE_USER
+    return tx
+
+
+def reset_category(ledger: Ledger, tx_id: str, rules: Iterable[Mapping[str, str]]) -> Transaction | None:
+    """Undo a category set by hand: the movement goes back to what the rules say."""
+    tx = find(ledger, tx_id)
+    if tx is not None and tx.get("category_source") == cat.SOURCE_USER:
+        tx["category_source"] = cat.SOURCE_NONE
+        categorize_transaction(tx, cat.compile_rules(rules))
+    return tx
+
+
+def set_note(ledger: Ledger, tx_id: str, note: str | None) -> Transaction | None:
+    """Add or change the note of one movement; an empty note removes it."""
+    tx = find(ledger, tx_id)
+    if tx is not None:
+        text = " ".join((note or "").split())[:NOTE_MAX].strip()
+        if text:
+            tx["note"] = text
+        else:
+            tx.pop("note", None)
+    return tx
 
 
 def upsert_rule(rules: list[dict[str, str]], pattern: str, category: str, now: str) -> list[dict[str, str]]:
@@ -412,6 +440,47 @@ def months_overview(ledger: Ledger) -> list[dict[str, Any]]:
 def last_date(ledger: Ledger) -> str | None:
     """Date of the newest movement: how up to date the data is."""
     return max((str(tx["date"]) for tx in ledger["transactions"] if tx.get("date")), default=None)
+
+
+_AMOUNT_QUERY = re.compile(r"[+\-−]?\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:[.,](\d{1,2}))?\s*(?:€|EUR)?", re.IGNORECASE)
+
+
+def query_amount(query: str | None) -> float | None:
+    """'45,30', '-45.3', '1.234,56 €' → 45.3 / 1234.56: a search can look for an amount."""
+    match = _AMOUNT_QUERY.fullmatch((query or "").strip())
+    if not match:
+        return None
+    whole = match.group(1).replace(".", "")
+    return round(float(f"{whole}.{match.group(2) or 0}"), 2)
+
+
+def search(
+    ledger: Ledger,
+    *,
+    query: str | None = None,
+    month: str | None = None,
+    category: str | None = None,
+) -> list[Transaction]:
+    """
+    Movements matching every filter given, newest first. The query looks in the
+    bank text, the merchant and the note (ignoring case and accents); if it
+    reads as an amount, movements of that exact amount (debit or credit) match too.
+    """
+    q = cat.normalize(query)
+    amount = query_amount(query)
+    out = []
+    for tx in ledger["transactions"]:
+        if month and month_of(tx) != month:
+            continue
+        if category and (tx.get("category") or cat.UNCATEGORIZED) != category:
+            continue
+        if q:
+            text = cat.normalize(" ".join(str(tx.get(k) or "") for k in SEARCH_FIELDS))
+            same_amount = amount is not None and abs(abs(float(tx["amount"])) - amount) < 0.005
+            if q not in text and not same_amount:
+                continue
+        out.append(tx)
+    return _newest_first(out)
 
 
 def review_count(ledger: Ledger) -> int:

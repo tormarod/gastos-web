@@ -9,7 +9,8 @@ Help the user get a month's movements into the app and check Inicio and Análisi
 3. **Verify**
    - The upload message shows how many movements were new and how many were already there.
    - Inicio: "Datos hasta el …" shows the last movement and the stale-data banner is gone.
-   - Análisis: the month appears in the chart and the KPIs look reasonable.
+   - Movimientos: the new movements are there, grouped by day.
+   - Análisis: the month appears in the charts and the averages look reasonable.
    - **Revisar**: assign a category to anything pending. Saving a rule applies it to every past and future movement. For a merchant that should be a built-in keyword, use `/categorize`.
 
 4. **If the upload fails**

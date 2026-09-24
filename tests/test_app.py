@@ -33,7 +33,8 @@ SEPTEMBER = [
 
 def test_pages_require_login():
     c = TestClient(main.app)
-    for path in ("/", "/analisis", "/ajustes", "/upload", "/revisar", "/api/data"):
+    for path in ("/", "/movimientos", "/analisis", "/analisis/categoria?nombre=Supermercado", "/ajustes",
+                 "/upload", "/revisar", "/api/data"):
         response = c.get(path, follow_redirects=False)
         assert (response.status_code, response.headers["location"]) == (303, "/login")
 
@@ -54,24 +55,26 @@ def test_login_is_rate_limited():
 
 def test_posts_need_login_too():
     c = TestClient(main.app)
-    for path in ("/ajustes/presupuestos", "/ajustes/objetivos"):
-        response = c.post(path, data={"categoria": "Hogar", "importe": "10"}, follow_redirects=False)
+    for path in ("/ajustes/presupuestos", "/ajustes/objetivos", "/movimientos/categoria", "/movimientos/nota",
+                 "/movimientos/automatica"):
+        response = c.post(path, data={"categoria": "Hogar", "importe": "10", "tx_id": "x", "category": "Hogar"},
+                          follow_redirects=False)
         assert (response.status_code, response.headers["location"]) == (303, "/login")
 
 
-def test_upload_import_and_dashboard(client):
+def test_upload_import_and_pages(client):
     first = upload(client, SEPTEMBER)
     assert first.status_code == 303
     assert "added=3" in first.headers["location"] and "review=1" in first.headers["location"]
     again = upload(client, SEPTEMBER)
     assert "added=0" in again.headers["location"] and "dup=3" in again.headers["location"]
 
-    page = client.get("/analisis")
+    page = client.get("/movimientos", params={"mes": "todos"})
     assert page.status_code == 200
-    assert "Plan Financiero 2026" in page.text
     assert "<script>alert(1)</script>" not in page.text  # statement text is escaped everywhere
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page.text
-    assert "<b>1</b> movimiento que la app no ha sabido categorizar" in page.text
+    assert "Por revisar" in page.text
+    assert client.get("/analisis").status_code == 200
 
     data = client.get("/api/data").json()
     assert data["months"]["2026-09"]["income"] == 1000.0
@@ -228,8 +231,89 @@ def test_goals_are_editable_and_used_by_the_analysis(client, today):
 
 def test_every_page_renders(client, today):
     upload(client, SEPTEMBER + AUGUST)
-    for path in ("/", "/analisis", "/ajustes", "/upload", "/revisar", "/login"):
+    for path in ("/", "/movimientos", "/movimientos?q=mercadona", "/analisis", "/analisis?periodo=todo",
+                 "/analisis/categoria?nombre=Supermercado", "/ajustes", "/upload", "/revisar", "/login"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert "/static/app.css?v=" in response.text
     assert client.get("/static/app.css").status_code == 200
+
+
+def test_movements_default_month_search_and_filters(client, today):
+    upload(client, SEPTEMBER + AUGUST)
+    page = client.get("/movimientos").text
+    assert "3 movimientos" in page and "Domingo 20 sep" in page and "Domingo 30 ago" not in page
+    assert '<option value="2026-09" selected>' in page
+
+    search = client.get("/movimientos", params={"q": "mercadona"}).text
+    assert "2 movimientos" in search and "Domingo 30 ago" in search
+    assert '<option value="todos" selected>' in search  # a new search looks in every month
+    assert "<b>1 movimiento</b>" in client.get("/movimientos", params={"q": "mercadona", "mes": "2026-08"}).text
+    assert "<b>1 movimiento</b>" in client.get("/movimientos", params={"q": "431"}).text  # an amount
+    rent = client.get("/movimientos", params={"cat": "Alquiler", "mes": "todos"}).text
+    assert "<b>1 movimiento</b>" in rent and "Alquiler Piso" in rent
+    junk = client.get("/movimientos", params={"mes": "basura", "cat": "Inventada", "n": "x"}).text
+    assert "3 movimientos" in junk and "Quitar filtros" not in junk
+
+
+def test_movement_category_note_and_back_to_automatic(client, today):
+    upload(client, SEPTEMBER)
+    tx = next(t for t in repo.load_ledger()["transactions"] if t["concept"] == "MERCADONA VALENCIA")
+    anchor = main._tx_anchor(tx["id"])
+
+    moved = client.post("/movimientos/categoria", data={"tx_id": tx["id"], "category": "Hogar", "mes": "2026-09",
+                                                         "cat": "Inventada", "q": ""}, follow_redirects=False)
+    assert moved.headers["location"] == f"/movimientos?mes=2026-09&ok=categoria&ver={anchor}#{anchor}"
+    stored = next(t for t in repo.load_ledger()["transactions"] if t["id"] == tx["id"])
+    assert (stored["category"], stored["category_source"]) == ("Hogar", "user")
+    page = client.get(moved.headers["location"].split("#")[0]).text
+    assert f'id="{anchor}" open' in page and "puesta a mano" in page and "Volver a la categoría automática" in page
+
+    back = client.post("/movimientos/automatica", data={"tx_id": tx["id"]}, follow_redirects=False)
+    assert "ok=automatica" in back.headers["location"]
+    stored = next(t for t in repo.load_ledger()["transactions"] if t["id"] == tx["id"])
+    assert (stored["category"], stored["category_source"]) == ("Supermercado", "keyword")
+
+    noted = client.post("/movimientos/nota", data={"tx_id": tx["id"], "note": "Compra de la semana", "q": "valencia"},
+                        follow_redirects=False)
+    assert noted.headers["location"].startswith("/movimientos?q=valencia&ok=nota&ver=")
+    assert "Compra de la semana" in client.get("/movimientos", params={"q": "semana"}).text
+    cleared = client.post("/movimientos/nota", data={"tx_id": tx["id"], "note": "  "}, follow_redirects=False)
+    assert "ok=nota_borrada" in cleared.headers["location"]
+    assert "note" not in next(t for t in repo.load_ledger()["transactions"] if t["id"] == tx["id"])
+
+    missing = client.post("/movimientos/nota", data={"tx_id": "no-existe", "note": "x"}, follow_redirects=False)
+    assert missing.headers["location"] == "/movimientos?ok=no_encontrado"
+    bad = client.post("/movimientos/categoria", data={"tx_id": tx["id"], "category": "Inventada"})
+    assert bad.status_code == 400
+
+
+def test_analysis_periods_and_category_detail(client, today):
+    upload(client, SEPTEMBER + AUGUST)
+    page = client.get("/analisis").text
+    assert "Agosto 2026," in page and "1 mes cerrado." in page and "Septiembre va a medias" in page
+    assert 'href="/analisis?periodo=12m" aria-current="page"' in page
+    assert 'href="/analisis/categoria?nombre=Supermercado&amp;periodo=12m"' in page
+    assert "1.281 €" in page  # August: 431 € of groceries + 850 € of rent
+    assert 'href="/analisis?periodo=12m" aria-current="page"' in client.get("/analisis", params={"periodo": "nope"}).text
+    assert 'href="/analisis?periodo=2026" aria-current="page"' in client.get("/analisis", params={"periodo": "2026"}).text
+
+    detail = client.get("/analisis/categoria", params={"nombre": "Supermercado"}).text
+    assert "Mercadona" in detail and "2 veces" in detail
+    assert 'href="/movimientos?mes=todos&amp;cat=Supermercado"' in detail
+    assert client.get("/analisis/categoria", params={"nombre": "Ingresos"}).status_code == 404
+    assert client.get("/analisis/categoria", params={"nombre": "<script>"}).status_code == 404
+
+
+def test_home_categories_open_their_movements(client, today):
+    upload(client, SEPTEMBER + AUGUST)
+    client.post("/ajustes/presupuestos", data={"categoria": ["Supermercado", "Alquiler"], "importe": ["440", "850"],
+                                               "fijo": ["Alquiler"]})
+    home = client.get("/").text
+    assert 'href="/movimientos?mes=2026-09&amp;cat=Supermercado"' in home
+    assert 'href="/movimientos?mes=2026-09&amp;cat=Alquiler"' in home
+
+
+def test_movements_without_data_invite_to_upload(client):
+    page = client.get("/movimientos").text
+    assert "Todavía no hay movimientos." in page and 'href="/upload"' in page

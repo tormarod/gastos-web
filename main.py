@@ -13,7 +13,7 @@ from urllib.parse import urlencode, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
-from fastapi import Cookie, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Cookie, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -21,7 +21,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 load_dotenv()
 
-from services import budget, insights, parser, repo  # noqa: E402
+from services import analysis, budget, insights, parser, repo  # noqa: E402
 from services import categorizer as cat  # noqa: E402
 from services import ledger as lg  # noqa: E402
 
@@ -55,10 +55,6 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 _signer = URLSafeTimedSerializer(SECRET_KEY)
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 try:
@@ -132,6 +128,44 @@ def _day_month(value: str | None) -> str:
         return value
 
 
+WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def _day_label(value: str | None) -> str:
+    """'2026-09-22' → 'Martes 22 sep'"""
+    if not value:
+        return "Sin fecha"
+    try:
+        day = date.fromisoformat(value[:10])
+    except ValueError:
+        return value
+    return f"{WEEKDAYS[day.weekday()].capitalize()} {day.day} {MONTH_NAMES[day.month - 1][:3]}"
+
+
+_LOWER_WORDS = {"DE", "DEL", "Y", "E", "EN"}
+_SHORT_WORDS = {"LA", "EL", "LO", "AL", "UN", "MI", "SU", "TU"}  # two letters, but not initials
+
+
+def _nice_name(tx: dict[str, Any]) -> str:
+    """The merchant as people write it: 'BAR LA ESQUINA' → 'Bar La Esquina', 'BP' stays."""
+    key = tx.get("merchant") or cat.merchant_key(tx.get("concept") or "")
+    words = []
+    for i, word in enumerate(key.split()):
+        letters = word.replace("'", "").replace(".", "")
+        if not letters.isalpha() or (len(word) <= 2 and word not in _LOWER_WORDS | _SHORT_WORDS):
+            words.append(word)
+        elif i and word in _LOWER_WORDS:
+            words.append(word.lower())
+        else:
+            words.append(word.capitalize())
+    return " ".join(words) or (tx.get("concept") or "—")
+
+
+def _tx_anchor(tx_id: str) -> str:
+    """A short, URL-safe id for a movement's row (ids can contain ':' and '#')."""
+    return "m-" + hashlib.sha1(tx_id.encode()).hexdigest()[:10]
+
+
 def _month_name(value: str | None) -> str:
     """'2026-09' → 'septiembre'"""
     try:
@@ -155,6 +189,9 @@ templates.env.filters["month_label"] = _month_label
 templates.env.filters["month_name"] = _month_name
 templates.env.filters["short_date"] = _short_date
 templates.env.filters["day_month"] = _day_month
+templates.env.filters["day_label"] = _day_label
+templates.env.filters["nice_name"] = _nice_name
+templates.env.filters["tx_anchor"] = _tx_anchor
 templates.env.globals["categories"] = cat.CATEGORIES
 templates.env.globals["asset_version"] = _asset_version()
 
@@ -305,68 +342,75 @@ def home(request: Request, mes: str | None = None, session: SessionCookie = None
 
 # ── Analysis ─────────────────────────────────────────────────────────────────
 
-def _dashboard_context(ledger: lg.Ledger, settings: dict[str, Any]) -> dict[str, Any]:
-    sorted_months = lg.month_summaries(ledger)
+def _chart_labels(months: list[str]) -> list[Any]:
+    """Short month names; the first bar and every January also carry the year."""
+    labels: list[Any] = []
+    for i, month in enumerate(months):
+        short = MONTH_NAMES[int(month[5:7]) - 1][:3]
+        labels.append([short, month[:4]] if i == 0 or month[5:7] == "01" else short)
+    return labels
 
-    all_categories: dict[str, float] = {}
-    for m in sorted_months:
-        for category, amount in m["summary"].items():
-            all_categories[category] = round(all_categories.get(category, 0) + amount, 2)
 
-    total_months = len(sorted_months)
-    avg_categories = (
-        {c: round(total / total_months, 2) for c, total in all_categories.items()}
-        if total_months else {}
-    )
-
-    total_income = round(sum(m["income"] for m in sorted_months), 2)
-    total_expenses = round(sum(m["total_expense"] for m in sorted_months), 2)
-    total_balance = round(total_income - total_expenses, 2)
-
-    monthly_series = [
-        {"month": m["month"], "income": m["income"], "expense": m["total_expense"],
-         "balance": m["balance"], "summary": m["summary"]}
-        for m in sorted_months
-    ]
-
-    latest = sorted_months[-1] if sorted_months else None
-    all_transactions = [
-        {"date": tx.get("date"), "month": m["month"], "concept": tx.get("concept"),
-         "category": tx.get("category"), "amount": tx["amount"]}
-        for m in sorted_months
-        for tx in m["transactions"]
-    ]
-    today = _today()
-    goals = settings["goals"]
-
-    return {
-        "sorted_months": sorted_months,
-        "monthly_series": monthly_series,
-        "avg_categories": avg_categories,
-        "total_income": total_income,
-        "total_expenses": total_expenses,
-        "total_balance": total_balance,
-        "avg_income": round(total_income / total_months, 2) if total_months else 0,
-        "avg_expenses": round(total_expenses / total_months, 2) if total_months else 0,
-        "avg_balance": round(total_balance / total_months, 2) if total_months else 0,
-        "goals": goals,
-        "fund": budget.fund_progress(sorted_months, goals, budget.month_key(today), today),
-        "latest_transactions": latest["transactions"][:50] if latest else [],
-        "latest_month": latest["month"] if latest else None,
-        "year": (latest["month"][:4] if latest else str(_now().year)),
-        "last_date": lg.last_date(ledger),
-        "all_transactions": all_transactions,
-        "has_data": total_months > 0,
-        "insight_cards": insights.generate(sorted_months),
-    }
+def _previous_label(period: dict[str, Any]) -> str:
+    if period["key"] == analysis.DEFAULT_PERIOD:
+        return "los 12 meses anteriores"
+    return str(int(period["key"]) - 1) if period["key"].isdigit() else ""
 
 
 @app.get("/analisis", response_class=HTMLResponse)
-def analysis(request: Request, session: SessionCookie = None):
+def analysis_page(request: Request, periodo: str = "", session: SessionCookie = None):
     _require_auth(session)
     ledger = repo.load_ledger()
     settings = budget.settings_view(repo.load_settings())
-    return _render(request, "dashboard.html", _dashboard_context(ledger, settings), ledger=ledger)
+    months = lg.month_summaries(ledger)
+    today = _today()
+    period = analysis.select_period(months, periodo, today)
+    fixed, goals = settings["fixed_categories"], settings["goals"]
+    rows = analysis.monthly(period, fixed)
+    last = period["months"][-1]["month"] if period["months"] else budget.month_key(today)
+    return _render(request, "analysis.html", {
+        "has_data": bool(months),
+        "period": period,
+        "previous_label": _previous_label(period),
+        "overview": analysis.overview(period, fixed, goals["monthly_saving"]),
+        "monthly": rows,
+        "categories": analysis.category_rows(period, settings["budgets"], fixed),
+        "insight_cards": insights.generate(period["closed"])[:3],
+        "fund": budget.fund_progress(months, goals, last, today),
+        "goals": goals,
+        "chart": {
+            "labels": _chart_labels([r["month"] for r in rows]),
+            "fixed": [r["fixed"] for r in rows],
+            "variable": [r["variable"] for r in rows],
+            "income": [r["income"] for r in rows],
+            "saving": [None if r["in_progress"] else r["saving"] for r in rows],
+            "inProgress": [r["in_progress"] for r in rows],
+            "goal": goals["monthly_saving"],
+        },
+    }, ledger=ledger)
+
+
+@app.get("/analisis/categoria", response_class=HTMLResponse)
+def category_page(request: Request, nombre: str = "", periodo: str = "", session: SessionCookie = None):
+    _require_auth(session)
+    if nombre not in cat.CATEGORIES or nombre == cat.INCOME:
+        raise HTTPException(status_code=404, detail="Categoría desconocida.")
+    ledger = repo.load_ledger()
+    settings = budget.settings_view(repo.load_settings())
+    period = analysis.select_period(lg.month_summaries(ledger), periodo, _today())
+    detail = analysis.category_detail(period, nombre, settings["budgets"], settings["fixed_categories"])
+    return _render(request, "category.html", {
+        "period": period,
+        "detail": detail,
+        "movements_url": "/movimientos?" + urlencode({"mes": "todos", "cat": nombre}),
+        "chart": {
+            "labels": _chart_labels([v["month"] for v in detail["values"]]),
+            "values": [v["value"] for v in detail["values"]],
+            "inProgress": [v["in_progress"] for v in detail["values"]],
+            "budget": detail["budget"],
+            "name": nombre,
+        },
+    }, ledger=ledger)
 
 
 # ── Upload ───────────────────────────────────────────────────────────────────
@@ -525,6 +569,127 @@ def delete_rule(pattern: Annotated[str, Form()], session: SessionCookie = None):
     rules = repo.update_rules(lambda current: lg.delete_rule(current, pattern))
     changed = repo.update_ledger(lambda ledger: lg.apply_rules(ledger, rules))
     return _redirect("/revisar", ok="borrada", n=changed)
+
+
+# ── Movements ────────────────────────────────────────────────────────────────
+
+MOVEMENTS_STEP = 200
+MOVEMENTS_MAX = 5000
+QUERY_MAX = 80
+
+
+def _clean_filters(q: str | None, mes: str | None, category: str | None) -> dict[str, str]:
+    """Only known-good filter values travel back into links and redirects."""
+    month = mes or ""
+    category = category or ""
+    return {
+        "q": (q or "").strip()[:QUERY_MAX],
+        "mes": month if month == "todos" or budget.is_month(month) else "",
+        "cat": category if category in cat.CATEGORIES else "",
+    }
+
+
+def _back_to_movements(filters: dict[str, str], **params: str) -> RedirectResponse:
+    query = urlencode({k: v for k, v in {**filters, **params}.items() if v})
+    anchor = params.get("ver")
+    return RedirectResponse(f"/movimientos?{query}" + (f"#{anchor}" if anchor else ""), status_code=303)
+
+
+@app.get("/movimientos", response_class=HTMLResponse)
+def movements_page(
+    request: Request,
+    q: str = "",
+    mes: str = "",
+    category: Annotated[str, Query(alias="cat")] = "",
+    n: str = "",
+    session: SessionCookie = None,
+):
+    _require_auth(session)
+    ledger = repo.load_ledger()
+    filters = _clean_filters(q, mes, category)
+    newest = lg.last_date(ledger)
+    default_month = newest[:7] if newest else budget.month_key(_today())
+    if filters["mes"] == "todos" or (not filters["mes"] and filters["q"]):
+        month = None  # a new search looks in every month
+    else:
+        month = filters["mes"] or default_month
+    found = lg.search(ledger, query=filters["q"], month=month, category=filters["cat"] or None)
+    limit = min(max(_int(n), MOVEMENTS_STEP), MOVEMENTS_MAX)
+    groups: list[dict[str, Any]] = []
+    for tx in found[:limit]:
+        day = tx.get("date")
+        if not groups or groups[-1]["date"] != day:
+            groups.append({"date": day, "transactions": []})
+        groups[-1]["transactions"].append(tx)
+    totals = lg.summarize(found)
+    params = request.query_params
+    return _render(request, "movements.html", {
+        "has_data": newest is not None or bool(ledger["transactions"]),
+        "filters": filters,
+        "month": month,
+        "months": [m["month"] for m in reversed(lg.month_summaries(ledger))],
+        "groups": groups,
+        "count": len(found),
+        "expense": totals["total_expense"],
+        "income": totals["income"],
+        "more": max(len(found) - limit, 0),
+        "step": MOVEMENTS_STEP,
+        "more_url": "/movimientos?" + urlencode({k: v for k, v in {**filters, "n": limit + MOVEMENTS_STEP}.items() if v}),
+        "ok": params.get("ok"),
+        "ver": params.get("ver"),
+    }, ledger=ledger)
+
+
+@app.post("/movimientos/categoria")
+def movement_category(
+    tx_id: Annotated[str, Form()],
+    category: Annotated[str, Form()],
+    q: Annotated[str, Form()] = "",
+    mes: Annotated[str, Form()] = "",
+    category_filter: Annotated[str, Form(alias="cat")] = "",
+    session: SessionCookie = None,
+):
+    _require_auth(session)
+    _valid_category(category)
+    filters = _clean_filters(q, mes, category_filter)
+    found = repo.update_ledger(lambda ledger: lg.set_category(ledger, tx_id, category) is not None)
+    if not found:
+        return _back_to_movements(filters, ok="no_encontrado")
+    return _back_to_movements(filters, ok="categoria", ver=_tx_anchor(tx_id))
+
+
+@app.post("/movimientos/nota")
+def movement_note(
+    tx_id: Annotated[str, Form()],
+    note: Annotated[str, Form()] = "",
+    q: Annotated[str, Form()] = "",
+    mes: Annotated[str, Form()] = "",
+    category_filter: Annotated[str, Form(alias="cat")] = "",
+    session: SessionCookie = None,
+):
+    _require_auth(session)
+    filters = _clean_filters(q, mes, category_filter)
+    found = repo.update_ledger(lambda ledger: lg.set_note(ledger, tx_id, note) is not None)
+    if not found:
+        return _back_to_movements(filters, ok="no_encontrado")
+    return _back_to_movements(filters, ok="nota" if note.strip() else "nota_borrada", ver=_tx_anchor(tx_id))
+
+
+@app.post("/movimientos/automatica")
+def movement_automatic(
+    tx_id: Annotated[str, Form()],
+    q: Annotated[str, Form()] = "",
+    mes: Annotated[str, Form()] = "",
+    category_filter: Annotated[str, Form(alias="cat")] = "",
+    session: SessionCookie = None,
+):
+    _require_auth(session)
+    filters = _clean_filters(q, mes, category_filter)
+    rules = repo.load_rules()
+    found = repo.update_ledger(lambda ledger: lg.reset_category(ledger, tx_id, rules) is not None)
+    if not found:
+        return _back_to_movements(filters, ok="no_encontrado")
+    return _back_to_movements(filters, ok="automatica", ver=_tx_anchor(tx_id))
 
 
 # ── Settings ─────────────────────────────────────────────────────────────────

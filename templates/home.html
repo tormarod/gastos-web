@@ -157,7 +157,7 @@
     <div class="card-title"><h2>Por categoría</h2>{% if show_tick %}<span class="legend-tick">dónde deberíais ir hoy</span>{% endif %}</div>
 
     {% for m in view.meters %}
-    <div class="meter {{ m.state }}" title="{{ m.name }}: {{ m.spent | eur(0) }} de {{ m.budget | eur(0) }} ({{ m.pct | round | int }} %)">
+    <a class="meter meter-link {{ m.state }}" href="/movimientos?{{ {'mes': view.month, 'cat': m.name} | urlencode }}" title="{{ m.name }}: {{ m.spent | eur(0) }} de {{ m.budget | eur(0) }} ({{ m.pct | round | int }} %)">
       <div class="meter-head">
         <span class="meter-name">{{ m.name }}</span>
         <span class="meter-val num">{{ m.spent | number }} <small>/ {{ m.budget | eur(0) }}</small></span>
@@ -174,7 +174,7 @@
           <span></span><span class="num">quedan {{ m.remaining | eur(0) }}</span>
         {% endif %}
       </div>
-    </div>
+    </a>
     {% endfor %}
 
     {% if view.untouched %}
@@ -190,7 +190,7 @@
     <div class="card-title"><h3>Fijos</h3><span class="aside">se pagan de golpe, sin ritmo</span></div>
     <div class="rows">
       {% for r in view.fixed.rows %}
-      <div class="row">
+      <a class="row row-link" href="/movimientos?{{ {'mes': view.month, 'cat': r.name} | urlencode }}">
         <span>{{ r.name }}</span>
         <span class="right">
           <span class="num">{{ r.spent | number }} / {{ r.budget | eur(0) }}</span>
@@ -199,7 +199,7 @@
           {% elif r.state == 'missing' %}<span class="pending">sin cargo</span>
           {% else %}<span class="pending">pendiente</span>{% endif %}
         </span>
-      </div>
+      </a>
       {% endfor %}
     </div>
     {% endif %}
@@ -210,7 +210,7 @@
     <div class="rows">
       {% for r in view.unbudgeted %}
       <div class="row">
-        <span>{{ r.name }}{% if r.review %} <a class="small" href="/revisar">({{ r.review }} por revisar)</a>{% endif %}</span>
+        <span><a class="plain-link" href="/movimientos?{{ {'mes': view.month, 'cat': r.name} | urlencode }}">{{ r.name }}</a>{% if r.review %} <a class="small" href="/revisar">({{ r.review }} por revisar)</a>{% endif %}</span>
         <span class="num">{{ r.spent | eur(0) }}</span>
       </div>
       {% endfor %}
@@ -230,10 +230,10 @@
     <section class="card" aria-label="Gasto por categoría">
       <div class="card-title"><h2>Por categoría</h2><span class="aside">{{ view.month | month_name }}</span></div>
       {% for r in view.spending %}
-      <div class="meter plain" title="{{ r.name }}: {{ r.spent | eur(0) }}">
+      <a class="meter meter-link plain" href="/movimientos?{{ {'mes': view.month, 'cat': r.name} | urlencode }}" title="{{ r.name }}: {{ r.spent | eur(0) }}">
         <div class="meter-head"><span class="meter-name">{{ r.name }}</span><span class="meter-val num">{{ r.spent | eur(0) }}</span></div>
         <div class="track" style="--p: {{ r.fill }}%"><i></i></div>
-      </div>
+      </a>
       {% else %}
       <p class="empty">{% if has_data %}No hay gastos en este mes.{% else %}Aún no hay datos. Subid el primer extracto de BBVA en Excel.<br><a class="btn btn-primary" style="margin-top:12px" href="/upload">Subir extracto</a>{% endif %}</p>
       {% endfor %}

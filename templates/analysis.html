@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% block title %}Análisis{% endblock %}
+{% block head %}{% if has_data %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>{% endif %}{% endblock %}
+{% block style %}
+  .analysis { display: flex; flex-direction: column; gap: 16px; }
+  .sumline { color: var(--muted); font-size: .9rem; margin-top: -4px; }
+  .insights { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+  .insight {
+    background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--ok); border-radius: 12px;
+    padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start;
+  }
+  .insight.danger { border-left-color: var(--over); }
+  .insight.warn { border-left-color: var(--warn); }
+  .insight.success { border-left-color: var(--pos); }
+  .insight > svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
+  .insight.danger > svg { color: var(--over); }
+  .insight.warn > svg { color: var(--warn); }
+  .insight.success > svg { color: var(--pos); }
+  .insight b { display: block; font-size: .92rem; line-height: 1.35; }
+  .insight span { display: block; font-size: .84rem; color: var(--muted); margin-top: 2px; }
+  .charts { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .8rem; color: var(--muted); margin-bottom: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .sw.fixed { background: var(--c-fixed); }
+  .sw.var { background: var(--c-var); }
+  .lk { width: 14px; height: 0; border-top: 2px solid var(--ink); display: inline-block; }
+  .lk.dash { border-top: 2px dashed var(--muted); }
+  .chart-note { font-size: .82rem; color: var(--muted); margin: -4px 0 8px; }
+  .catlist { display: flex; flex-direction: column; }
+  .catrow {
+    display: grid; grid-template-columns: minmax(0, 1fr) 64px 84px; gap: 14px; align-items: center;
+    padding: 10px 8px; margin: 0 -8px; border-radius: 8px; color: var(--ink); text-decoration: none;
+  }
+  .catrow + .catrow { border-top: 1px solid var(--line); }
+  a.catrow:hover { background: var(--sunk); }
+  .catrow .name { font-weight: 600; min-width: 0; }
+  .catrow .name small { display: flex; align-items: center; gap: 5px; font-weight: 500; font-size: .78rem; color: var(--muted); }
+  .catrow .name small svg { width: 12px; height: 12px; color: var(--over); flex: none; }
+  .catrow .avg { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .catrow.head { font-size: .7rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding-top: 0; }
+  @media (max-width: 480px) { .catrow { grid-template-columns: minmax(0, 1fr) 64px 70px; gap: 10px; } }
+{% endblock %}
+
+{% macro delta(value, up_is_good, unit) -%}
+  {%- if value is defined and value is not none -%}
+  <span class="delta {{ 'good' if (value > 0) == up_is_good and value != 0 else 'bad' if value != 0 }}">
+    {%- if value == 0 %}igual que {{ previous_label }}
+    {%- else %}{{ '▲' if value > 0 else '▼' }} {% if unit == '%' %}{{ value | abs }} %{% else %}{{ value | abs | eur(0) }}{% endif %} frente a {{ previous_label }}{% endif -%}
+  </span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+<div class="analysis">
+  <h1>Análisis</h1>
+
+  {% if not has_data %}
+  <div class="card empty">
+    <h2>Aún no hay datos</h2>
+    <p style="margin:6px 0 14px">Subid el primer extracto de BBVA en Excel para ver el análisis.</p>
+    <a class="btn btn-primary" href="/upload">Subir extracto</a>
+  </div>
+  {% else %}
+
+  <nav class="periods" aria-label="Periodo">
+    {% for o in period.options %}
+    <a class="period" href="/analisis?periodo={{ o.key }}"{% if o.key == period.key %} aria-current="page"{% endif %}>{{ o.label }}</a>
+    {% endfor %}
+  </nav>
+  <p class="sumline">
+    {% if overview %}
+      {% set first = period.closed[0].month %}{% set last = period.closed[-1].month %}
+      {% if first == last %}{{ first | month_label | capitalize }}{% else %}De {{ first | month_label }} a {{ last | month_label }}{% endif %},
+      {{ overview.months }} mes{{ 'es' if overview.months != 1 }} cerrado{{ 's' if overview.months != 1 }}.
+    {% else %}Todavía no hay ningún mes cerrado en este periodo.{% endif %}
+    {% if period.current %}{{ period.current | month_name | capitalize }} va a medias y no cuenta en las medias.{% endif %}
+  </p>
+
+  {% if overview %}
+  {% set ch = overview.changes or {} %}
+  <div class="tiles">
+    <div class="tile">
+      <span class="label">Gasto medio al mes</span>
+      <span class="value">{{ overview.spent | eur(0) }}</span>
+      <span class="sub">fijos {{ overview.fixed | number }} · variables {{ overview.variable | number }}</span>
+      {{ delta(ch.spent, False, '%') }}
+    </div>
+    <div class="tile">
+      <span class="label">Ingresos medios</span>
+      <span class="value">{{ overview.income | eur(0) }}</span>
+      <span class="sub">al mes</span>
+      {{ delta(ch.income, True, '%') }}
+    </div>
+    <div class="tile">
+      <span class="label">Ahorro medio al mes</span>
+      <span class="value">{{ overview.saving | eur(0) }}</span>
+      <span class="sub">
+        {% if overview.saving >= overview.goal %}<svg class="good" aria-hidden="true"><use href="#s-good"/></svg>
+        {% else %}<svg class="warn" aria-hidden="true"><use href="#s-warn"/></svg>{% endif %}
+        objetivo {{ overview.goal | eur(0) }}
+      </span>
+      {{ delta(ch.saving, True, '€') }}
+    </div>
+    <div class="tile">
+      <span class="label">Objetivo cumplido</span>
+      <span class="value">{{ overview.goal_met }} de {{ overview.months }}</span>
+      <span class="sub">mes{{ 'es' if overview.months != 1 }}</span>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if insight_cards %}
+  <div class="insights">
+    {% for card in insight_cards %}
+    <div class="insight {{ card.type }}">
+      <svg aria-hidden="true"><use href="#{{ 's-over' if card.type == 'danger' else 's-warn' if card.type == 'warn' else 's-good' }}"/></svg>
+      <div><b>{{ card.title }}</b><span>{{ card.detail }}</span></div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="charts">
+    <section class="card" aria-labelledby="t-split">
+      <div class="card-title"><h2 id="t-split">¿En qué se va cada mes?</h2><span class="aside">euros</span></div>
+      <div class="legend" aria-hidden="true"><span><i class="sw fixed"></i>Fijos</span><span><i class="sw var"></i>Variables</span><span><i class="lk"></i>Ingresos</span></div>
+      <div class="chart-box"><canvas id="splitChart" role="img" aria-label="Gasto de cada mes, fijos y variables apilados, con la línea de ingresos. Los datos están en la tabla de debajo."></canvas></div>
+      <details class="data">
+        <summary>Ver los datos en tabla</summary>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Mes</th><th class="r">Fijos</th><th class="r">Variables</th><th class="r">Total</th><th class="r">Ingresos</th><th class="r">Sobró</th></tr></thead>
+            <tbody>
+              {% for r in monthly %}
+              <tr>
+                <td>{{ r.month | month_label | capitalize }}{% if r.in_progress %} (a medias){% endif %}</td>
+                <td class="r">{{ r.fixed | eur(0) }}</td>
+                <td class="r">{{ r.variable | eur(0) }}</td>
+                <td class="r">{{ r.total | eur(0) }}</td>
+                <td class="r">{{ r.income | eur(0) }}</td>
+                <td class="r">{% if r.in_progress %}—{% else %}{{ '+' if r.saving > 0 }}{{ r.saving | eur(0) }}{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <section class="card" aria-labelledby="t-saving">
+      <div class="card-title"><h2 id="t-saving">Ahorro de cada mes</h2><span class="aside legend" style="margin:0"><span><i class="lk dash"></i>objetivo {{ goals.monthly_saving | eur(0) }}</span></span></div>
+      <p class="chart-note">
+        {{ fund.name }} {{ fund.year }}: {{ fund.saved | eur(0) }} de {{ fund.goal | eur(0) }}.
+        {% if overview %}Sobraron {{ goals.monthly_saving | eur(0) }} o más en {{ overview.goal_met }} de {{ overview.months }} mes{{ 'es' if overview.months != 1 }}.{% endif %}
+      </p>
+      <div class="chart-box short"><canvas id="savingChart" role="img" aria-label="Lo que sobró cada mes cerrado, con la línea del objetivo. Los datos están en la tabla del gráfico anterior."></canvas></div>
+    </section>
+  </div>
+
+  <section class="card" aria-labelledby="t-cats">
+    <div class="card-title"><h2 id="t-cats">Por categoría</h2><span class="aside">{{ 'media al mes' if overview else 'en este mes' }} · tocad una para verla a fondo</span></div>
+    <div class="catlist">
+      <div class="catrow head" aria-hidden="true"><span>Categoría</span><span>Mes a mes</span><span class="r">{{ 'Media' if overview else 'Total' }}</span></div>
+      {% for r in categories %}
+      <a class="catrow" href="/analisis/categoria?{{ {'nombre': r.name, 'periodo': period.key} | urlencode }}">
+        <span class="name">{{ r.name }}
+          <small>
+            {%- if r.over %}<svg aria-hidden="true"><use href="#s-over"/></svg>por encima de {{ r.budget | eur(0) }}
+            {%- elif r.budget %}{{ 'fijo · ' if r.fixed }}presupuesto {{ r.budget | eur(0) }}
+            {%- else %}{{ 'fijo · ' if r.fixed }}sin presupuesto{% endif -%}
+          </small>
+        </span>
+        {% if r.spark %}
+        <svg class="spark" viewBox="0 0 64 18" aria-hidden="true">{% for b in r.spark %}<rect class="{{ b.kind }}" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="1"/>{% endfor %}</svg>
+        {% else %}<span></span>{% endif %}
+        <span class="avg">{{ (r.average if r.average is not none else r.total) | eur(0) }}</span>
+      </a>
+      {% else %}
+      <p class="empty">No hay gastos en este periodo.</p>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if has_data %}
+<script>
+  const data = {{ chart | tojson }};
+  const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const euro = (v) => `${Math.round(v).toLocaleString('es-ES')} €`;
+  const title = (items) => [].concat(data.labels[items[0].dataIndex]).join(' ');
+  function fade(hex, alpha) {
+    let h = hex.replace('#', '');
+    if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+    const n = parseInt(h, 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  }
+
+  let charts = [];
+  function buildCharts() {
+    charts.forEach((c) => c.destroy());
+    const ink = token('--ink'), muted = token('--muted'), grid = token('--grid'), card = token('--card');
+    const fixed = token('--c-fixed'), variable = token('--c-var');
+    Chart.defaults.color = muted;
+    Chart.defaults.font.family = token('--body');
+    Chart.defaults.plugins.colors.enabled = false;
+    // The month in progress is drawn lighter: it still owes most of its bills.
+    const shade = (color) => data.inProgress.map((p) => (p ? fade(color, 0.4) : color));
+    const scales = (stacked) => ({
+      x: { stacked, grid: { display: false }, border: { color: grid }, ticks: { maxRotation: 0, autoSkipPadding: 8 } },
+      y: { stacked, grid: { color: grid }, border: { display: false }, ticks: { callback: (v) => euro(v) } },
+    });
+    const bar = (label, values, color) => ({
+      label, data: values, backgroundColor: shade(color), borderColor: card, borderWidth: { top: 2 },
+      borderRadius: 4, borderSkipped: 'start', maxBarThickness: 24,
+    });
+
+    charts.push(new Chart(document.getElementById('splitChart'), {
+      type: 'bar',
+      data: {
+        labels: data.labels,
+        datasets: [
+          bar('Fijos', data.fixed, fixed),
+          bar('Variables', data.variable, variable),
+          {
+            type: 'line', label: 'Ingresos', data: data.income, borderColor: ink, backgroundColor: ink,
+            borderWidth: 2, pointRadius: 3.5, pointHoverRadius: 5, pointBackgroundColor: ink,
+            pointBorderColor: card, pointBorderWidth: 2,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title,
+              label: (ctx) => ` ${ctx.dataset.label}: ${euro(ctx.parsed.y)}`,
+              footer: (items) => {
+                const i = items[0].dataIndex;
+                if (data.inProgress[i]) return 'Mes a medias';
+                const left = data.income[i] - data.fixed[i] - data.variable[i];
+                return `Sobró: ${euro(left)}`;
+              },
+            },
+          },
+        },
+        scales: scales(true),
+      },
+    }));
+
+    charts.push(new Chart(document.getElementById('savingChart'), {
+      type: 'bar',
+      data: {
+        labels: data.labels,
+        datasets: [
+          { label: 'Sobró', data: data.saving, backgroundColor: variable, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 24 },
+          {
+            type: 'line', label: 'Objetivo', data: data.labels.map(() => data.goal), borderColor: muted,
+            borderDash: [4, 3], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            filter: (item) => item.raw !== null,
+            callbacks: { title, label: (ctx) => ` ${ctx.dataset.label}: ${euro(ctx.parsed.y)}` },
+          },
+        },
+        scales: scales(false),
+      },
+    }));
+  }
+  buildCharts();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', buildCharts);
+</script>
+{% endif %}
+{% endblock %}
