@@ -1,29 +1,15 @@
-Guide through uploading a new month's bank statement and verifying the dashboard updated correctly.
-
-Walk the user through these steps:
+Help the user get a month's movements into the app and check the dashboard updated correctly.
 
 1. **Export from BBVA**
-   - Log in to bbva.es → Cuentas → select the shared account
-   - Go to the month's statement → Descargar → select **Excel (.xlsx)**
-   - Save the file somewhere easy to find (e.g. Downloads)
+   - Log in to bbva.es → Cuentas → the shared account → download the movements as **Excel (.xlsx)**. Several months at once is fine.
 
 2. **Upload to the app**
-   - Open the app URL in the browser
-   - Go to **Subir Extracto**
-   - Select the correct month (YYYY-MM format)
-   - Drag the downloaded `.xlsx` file into the upload zone
-   - Click **Procesar y guardar**
+   - Open the app → **Subir extracto** → drop the file(s) → **Importar**. No month to choose; movements already stored are skipped.
 
 3. **Verify**
-   - Confirm the success message appears with the correct month label
-   - Go back to the Dashboard and check:
-     - The new month appears in the monthly chart
-     - The KPIs (income, expenses, balance) look reasonable
-     - The top transactions in the table are from the new month
-   - If any transactions have category "Otros" and you think they should be categorised, use `/categorize` to add the rule.
+   - The upload message shows how many movements were new and how many were already there.
+   - Dashboard: the month appears in the chart and the KPIs look reasonable.
+   - **Revisar**: assign a category to anything pending. Saving a rule applies it to every past and future movement. For a merchant that should be a built-in keyword, use `/categorize`.
 
 4. **If the upload fails**
-   - Check the error message — most likely causes:
-     - Wrong file format (must be `.xlsx`, not `.xls` or `.pdf`)
-     - BBVA changed their export layout → report to Claude so the parser can be updated
-   - You can re-upload the same month; it will overwrite the previous data for that month.
+   - Wrong format (must be `.xlsx`, not `.xls` or `.pdf`), or BBVA changed their export layout → report to Claude so the parser can be updated.

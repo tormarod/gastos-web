@@ -2,144 +2,145 @@
 BBVA XLSX bank statement parser.
 
 BBVA export format (typical):
-- Rows 1–7: metadata header (account, owner, date range, balance)
-- Row 8: column headers — "F. VALOR", "CONCEPTO", "IMPORTE", "DISPONIBLE"
-- Row 9+: transactions
+- First rows: metadata (account, owner, date range, balance)
+- Header row: "F. VALOR", "FECHA", "CONCEPTO", "MOVIMIENTO", "IMPORTE", "DISPONIBLE", ...
+- Following rows: one movement each
 
-This parser finds the header row dynamically so it's resilient to format changes.
+The header row is found dynamically so small layout changes don't break it.
+The parser only reads rows; months, categories and duplicates are handled by
+services.ledger when the rows are imported.
 """
 
 from __future__ import annotations
 
+import io
 import re
-from datetime import date
+import unicodedata
+from datetime import date, datetime
 from typing import Any
 
 import openpyxl
 
-from services.categorizer import categorize
+Row = dict[str, Any]
+
+# Header fragments, matched against uppercase headers without accents. Columns
+# are picked left to right exactly as the first version did, so a statement
+# parsed before and after the migration yields the same dates (and ids).
+_DATE_HEADERS = ["F. VALOR", "FECHA VALOR", "FECHA"]
+_CONCEPT_HEADERS = ["CONCEPTO", "DESCRIPCION"]
+_AMOUNT_HEADERS = ["IMPORTE"]
+_BALANCE_HEADERS = ["DISPONIBLE", "SALDO"]
+_DETAIL_HEADERS = ["MOVIMIENTO", "OBSERVACIONES"]
+_HEADER_ROW_HINTS = ["CONCEPTO", "F. VALOR", "IMPORTE", "DESCRIPCION"]
 
 
-Transaction = dict[str, Any]
-
-
-def parse_bbva_xlsx(
-    file_bytes: bytes,
-    month_label: str,
-    custom_rules: list[dict] | None = None,
-) -> dict[str, Any]:
+def parse_bbva_xlsx(file_bytes: bytes) -> list[Row]:
     """
-    Parse a BBVA XLSX export and return a structured month summary.
+    Parse a BBVA XLSX export into rows, in file order:
 
-    Returns:
-        {
-            "month": "2026-05",
-            "transactions": [...],
-            "summary": { category: total, ... },
-            "income": float,
-            "total_expense": float,
-            "balance": float,
-        }
+        {"date": "2026-09-20" | None, "concept": str, "amount": -45.3,
+         "balance": 1234.5 | None, "details": str | None}
     """
-    import io
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    except Exception as exc:  # openpyxl raises several unrelated types for bad files
+        raise ValueError("No se ha podido abrir el fichero. ¿Es un Excel (.xlsx) válido?") from exc
     ws = wb.active
     if ws is None:
         raise ValueError("El fichero Excel no contiene hojas.")
 
-    rows = list(ws.iter_rows(values_only=True))
-
-    # Find the header row by looking for "CONCEPTO" or "F. VALOR"
-    header_row_idx = None
-    for i, row in enumerate(rows):
-        row_text = " ".join(str(c) for c in row if c is not None).upper()
-        if "CONCEPTO" in row_text or "F. VALOR" in row_text or "IMPORTE" in row_text:
-            header_row_idx = i
-            break
-
-    if header_row_idx is None:
+    rows = [tuple(r) for r in ws.iter_rows(values_only=True)]
+    header_idx = _find_header_row(rows)
+    if header_idx is None:
         raise ValueError("No se encontró la cabecera del extracto BBVA. ¿Es un fichero BBVA correcto?")
 
-    headers = [str(c).strip().upper() if c is not None else "" for c in rows[header_row_idx]]
+    headers = [_norm_header(c) for c in rows[header_idx]]
 
-    def col(name_fragments: list[str]) -> int | None:
+    def col(fragments: list[str]) -> int | None:
         for i, h in enumerate(headers):
-            if any(f in h for f in name_fragments):
+            if any(f in h for f in fragments):
                 return i
         return None
 
-    date_col   = col(["F. VALOR", "FECHA VALOR", "FECHA"])
-    concept_col = col(["CONCEPTO", "DESCRIPCIÓN", "DESCRIPCION"])
-    amount_col  = col(["IMPORTE"])
-    balance_col = col(["DISPONIBLE", "SALDO"])
+    date_col = col(_DATE_HEADERS)
+    if date_col is None:  # "F.VALOR" without the space
+        date_col = next((i for i, h in enumerate(headers) if re.sub(r"[^A-Z]", "", h) == "FVALOR"), None)
+    concept_col = col(_CONCEPT_HEADERS)
+    amount_col = col(_AMOUNT_HEADERS)
+    balance_col = col(_BALANCE_HEADERS)
+    detail_cols = [i for name in _DETAIL_HEADERS if (i := col([name])) is not None]
 
     if concept_col is None or amount_col is None:
         raise ValueError("No se encontraron las columnas CONCEPTO e IMPORTE en el extracto.")
 
-    transactions: list[Transaction] = []
-
-    for row in rows[header_row_idx + 1:]:
-        # Skip completely empty rows
+    parsed: list[Row] = []
+    for row in rows[header_idx + 1:]:
         if all(c is None for c in row):
             continue
 
-        raw_amount = row[amount_col] if amount_col is not None else None
-        if raw_amount is None:
-            continue
-
-        # Parse amount — may be a float already or a string like "1.234,56"
-        amount = _parse_amount(raw_amount)
+        amount = _parse_amount(_cell(row, amount_col))
         if amount is None:
             continue
 
-        concept = str(row[concept_col] or "").strip()
+        concept = str(_cell(row, concept_col) or "").strip()
         if not concept:
             continue
 
-        tx_date: date | None = None
-        if date_col is not None and row[date_col] is not None:
-            tx_date = _parse_date(row[date_col])
+        raw_date = _cell(row, date_col)
+        tx_date = _parse_date(raw_date) if raw_date is not None else None
 
-        balance: float | None = None
-        if balance_col is not None and row[balance_col] is not None:
-            balance = _parse_amount(row[balance_col])
+        raw_balance = _cell(row, balance_col)
+        balance = _parse_amount(raw_balance) if raw_balance is not None else None
 
-        category = categorize(concept, custom_rules)
+        details = " · ".join(
+            str(v).strip() for i in detail_cols if (v := _cell(row, i)) not in (None, "")
+        ) or None
 
-        transactions.append({
+        parsed.append({
             "date": tx_date.isoformat() if tx_date else None,
             "concept": concept,
             "amount": round(amount, 2),
             "balance": round(balance, 2) if balance is not None else None,
-            "category": category,
+            "details": details,
         })
 
-    income   = round(sum(t["amount"] for t in transactions if t["amount"] > 0), 2)
-    expenses = round(sum(t["amount"] for t in transactions if t["amount"] < 0), 2)
+    if not parsed:
+        raise ValueError("El extracto no contiene movimientos.")
+    return parsed
 
-    summary: dict[str, float] = {}
-    for t in transactions:
-        if t["amount"] < 0:
-            cat = t["category"]
-            summary[cat] = round(summary.get(cat, 0) + abs(t["amount"]), 2)
 
-    # Sort transactions by date descending
-    transactions.sort(key=lambda t: t["date"] or "", reverse=True)
+def _find_header_row(rows: list[tuple[Any, ...]]) -> int | None:
+    """Prefer the first row naming two or more known columns; fall back to one."""
+    fallback = None
+    for i, row in enumerate(rows):
+        names = [_norm_header(c) for c in row if c is not None]
+        hits = sum(1 for n in names if any(k in n for k in _HEADER_ROW_HINTS))
+        if hits >= 2:
+            return i
+        if hits == 1 and fallback is None:
+            fallback = i
+    return fallback
 
-    return {
-        "month": month_label,
-        "transactions": transactions,
-        "summary": summary,
-        "income": income,
-        "total_expense": abs(expenses),
-        "balance": round(income + expenses, 2),
-    }
+
+def _norm_header(value: Any) -> str:
+    if value is None:
+        return ""
+    text = unicodedata.normalize("NFKD", str(value))
+    return "".join(ch for ch in text if not unicodedata.combining(ch)).upper().strip()
+
+
+def _cell(row: tuple[Any, ...], idx: int | None) -> Any:
+    if idx is None or idx >= len(row):
+        return None
+    return row[idx]
 
 
 def _parse_amount(val: Any) -> float | None:
+    if isinstance(val, bool):
+        return None
     if isinstance(val, (int, float)):
         return float(val)
-    s = str(val).strip().replace("\xa0", "").replace(" ", "")
+    s = str(val).strip().replace("\xa0", "").replace(" ", "").replace("€", "").replace("EUR", "")
     # Handle Spanish number format: 1.234,56 → 1234.56
     if "," in s and "." in s:
         s = s.replace(".", "").replace(",", ".")
@@ -152,6 +153,8 @@ def _parse_amount(val: Any) -> float | None:
 
 
 def _parse_date(val: Any) -> date | None:
+    if isinstance(val, datetime):
+        return val.date()
     if isinstance(val, date):
         return val
     s = str(val).strip()

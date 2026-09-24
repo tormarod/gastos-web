@@ -18,11 +18,12 @@ MONTH_NAMES = {
 CAT_ICONS: dict[str, str] = {
     "Alquiler": "🏠", "Suministros": "⚡", "Telefonía": "📱",
     "Supermercado": "🛒", "Delivery": "🍕", "Restaurantes": "🍽️",
-    "Amazon/Online": "📦", "Ocio/Cultura": "🎭", "Transporte": "🚗",
+    "Cafés y Snacks": "☕", "Amazon/Online": "📦", "Ocio/Cultura": "🎭",
+    "Coche": "🚗", "Transporte público": "🚇", "Transporte privado": "🚕",
     "Salud": "💊", "Ropa/Accesorios": "👗", "Belleza": "💄",
     "Viajes": "✈️", "Compras": "🛍️", "Hogar": "🪴",
     "Seguros": "🛡️", "Gasolinera": "⛽", "Efectivo": "💵",
-    "Comisiones": "🏦", "Otros": "📎",
+    "Comisiones": "🏦", "Ingresos": "💰", "Ajustes de cuenta": "🔄", "Otros": "📎",
 }
 
 Insight = dict[str, str]
@@ -45,6 +46,7 @@ def generate(sorted_months: list[dict[str, Any]]) -> list[Insight]:
         return []
 
     insights: list[Insight] = []
+    covered: set[str] = set()  # categories that already have a card
     current  = sorted_months[-1]
     previous = sorted_months[-2] if len(sorted_months) >= 2 else None
 
@@ -84,6 +86,7 @@ def generate(sorted_months: list[dict[str, Any]]) -> list[Insight]:
         for cat, cv, pv, pct, diff in deltas:
             if pct > 20 and diff > 15:
                 severity = "danger" if pct > 40 else "warn"
+                covered.add(cat)
                 insights.append({
                     "type":   severity,
                     "icon":   _icon(cat),
@@ -96,6 +99,7 @@ def generate(sorted_months: list[dict[str, Any]]) -> list[Insight]:
         # Significant decreases → success
         for cat, cv, pv, pct, diff in deltas:
             if pct < -15 and diff < -10:
+                covered.add(cat)
                 insights.append({
                     "type":   "success",
                     "icon":   _icon(cat),
@@ -106,7 +110,6 @@ def generate(sorted_months: list[dict[str, Any]]) -> list[Insight]:
                     break
 
     # ── 2. Above personal average (only if not already caught by MoM) ─────
-    covered = {i["title"].split()[0] for i in insights}
     for cat, curr_val in sorted(current["summary"].items(), key=lambda x: -x[1]):
         if cat == "Ingresos" or cat in covered:
             continue
@@ -146,12 +149,13 @@ def generate(sorted_months: list[dict[str, Any]]) -> list[Insight]:
                     })
                     break  # one streak insight is enough
 
-    # ── 4. Savings trajectory ─────────────────────────────────────────────
-    if len(sorted_months) >= 2:
-        avg_balance = sum(m["balance"] for m in sorted_months) / len(sorted_months)
+    # ── 4. Savings trajectory (current year only) ─────────────────────────
+    year_months = [m for m in sorted_months if m["month"][:4] == current["month"][:4]]
+    if len(year_months) >= 2:
+        avg_balance = sum(m["balance"] for m in year_months) / len(year_months)
         curr_month_num = int(current["month"][5:7])
         months_left    = 12 - curr_month_num
-        already_saved  = sum(m["balance"] for m in sorted_months if m["balance"] > 0)
+        already_saved  = sum(m["balance"] for m in year_months if m["balance"] > 0)
         projected      = round(already_saved + avg_balance * months_left)
 
         if avg_balance >= 0:
@@ -178,7 +182,8 @@ def generate(sorted_months: list[dict[str, Any]]) -> list[Insight]:
     # ── 5. Best month callout (≥3 months of data) ─────────────────────────
     if len(sorted_months) >= 3:
         best = max(sorted_months[:-1], key=lambda m: m["balance"])
-        if best["balance"] > 0 and best["balance"] > (avg_by_cat.get("_balance", 0)):
+        overall_avg = sum(m["balance"] for m in sorted_months) / len(sorted_months)
+        if best["balance"] > 0 and best["balance"] > overall_avg:
             insights.append({
                 "type":   "success",
                 "icon":   "🏆",

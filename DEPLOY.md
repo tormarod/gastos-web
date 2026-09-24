@@ -15,14 +15,37 @@
    - Name: `gastos-rodrigo-rocio` (o el nombre que quieras)
    - Region: `eu-west-1` (Irlanda, la más cercana)
    - Block all public access: **activado** (los datos son privados)
+   - Bucket Versioning: **Enable**. Así cualquier cambio se puede deshacer recuperando una versión anterior de `ledger.json`.
 3. Clic en **"Create bucket"**
 
-## Paso 2 — Crear un usuario IAM con acceso solo a S3
+Si el bucket ya existe: **Properties → Bucket Versioning → Edit → Enable**.
+
+## Paso 2 — Crear un usuario IAM con acceso solo a ese bucket
 
 1. Ve a **IAM → Users → Create user**
    - Username: `gastos-web-app`
-2. En **Permissions → Attach policies directly**, busca y selecciona `AmazonS3FullAccess`
-   - (O crea una política personalizada solo para ese bucket si quieres más seguridad)
+2. En **Permissions → Attach policies directly → Create policy → JSON**, pega esto (cambia el nombre del bucket si es otro):
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": ["s3:GetObject", "s3:PutObject"],
+         "Resource": "arn:aws:s3:::gastos-rodrigo-rocio/*"
+       },
+       {
+         "Effect": "Allow",
+         "Action": "s3:ListBucket",
+         "Resource": "arn:aws:s3:::gastos-rodrigo-rocio"
+       }
+     ]
+   }
+   ```
+
+   `ListBucket` hace falta para que S3 responda "no existe" (y no "acceso denegado") cuando la app busca un fichero que aún no se ha creado.
+   Si ya usabais `AmazonS3FullAccess`, sustituidla por esta política: da acceso solo a vuestro bucket.
 3. Ve a **Security credentials → Create access key**
    - Use case: "Application running outside AWS"
 4. Guarda el **Access Key ID** y **Secret Access Key** — solo se muestran una vez
@@ -54,20 +77,26 @@ git push -u origin main
 
 Render desplegará la app automáticamente. La URL será algo como `https://gastos-web.onrender.com`.
 
+En producción (`ENV=production`) la app **no arranca** si faltan `SECRET_KEY` o `APP_PASSWORD`, para no quedarse nunca con una contraseña por defecto. Si un despliegue falla por eso, Render mantiene la versión anterior en marcha.
+
+La primera vez que se abre la nueva versión, la app convierte vuestros `data.json` y `merchant_rules.json` al formato nuevo (`ledger.json` y `rules.json`). Los ficheros antiguos no se borran. En **Revisar** aparece un resumen de la migración.
+
 ---
 
 ## Uso mensual
 
-Cada mes, cuando tengas el extracto BBVA:
-1. Abre la app en el navegador
-2. Ve a **"Subir Extracto"**
-3. Selecciona el mes correcto
-4. Arrastra el fichero `.xlsx` descargado de BBVA
-5. El dashboard se actualiza instantáneamente
+Cada mes, o cuando queráis:
+1. Entrad en BBVA online y descargad los movimientos de la cuenta común en **Excel (.xlsx)**. Pueden ser varios meses de golpe.
+2. Abrid la app → **Subir extracto** → arrastrad el fichero. No hace falta elegir el mes y los solapes no duplican nada.
+3. Lo que la app no sabe categorizar aparece en **Revisar**. Cada regla que guardáis se aplica a todos los movimientos, pasados y futuros.
+
+La conexión automática con el banco (Enable Banking) queda para una versión posterior; está preparada en un PR aparte.
 
 ## Actualizar la app
 
 Cualquier cambio en el código → `git push` → Render despliega automáticamente.
+
+Antes de subir cambios: `pip install -r requirements-dev.txt && pytest`.
 
 ---
 
@@ -75,4 +104,4 @@ Cualquier cambio en el código → `git push` → Render despliega automáticame
 
 - La app **duerme** tras 15 minutos sin peticiones
 - Al acceder de nuevo tarda ~30 segundos en despertarse (normal)
-- Si esto molesta, en el futuro puedes hacer ping automático con un cron externo (UptimeRobot, gratis)
+- Si la espera molesta, el plan Starter de Render (unos 7 $/mes) no duerme
