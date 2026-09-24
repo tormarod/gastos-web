@@ -43,6 +43,7 @@
 <div class="sub">
   Sube uno o varios Excel de BBVA. No hace falta elegir el mes: cada movimiento va a su fecha
   y los que ya estaban guardados se ignoran, así que puedes subir extractos que se solapen.
+  {% if bank.state in ('active', 'expiring') %}Con el banco conectado, esto solo hace falta para cargar meses antiguos.{% endif %}
 </div>
 
 {% if result %}
@@ -139,7 +140,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <div class="empty">Todavía no hay movimientos guardados.<br>Sube el primero con el formulario.</div>
+    <div class="empty">Todavía no hay movimientos guardados.<br>Sube un extracto o <a href="/banco">conecta el banco</a>.</div>
     {% endif %}
   </div>
 </div>
