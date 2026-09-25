@@ -1,7 +1,9 @@
 import os
 import subprocess
 import sys
+import time
 from datetime import date, datetime
+from urllib.parse import urlencode
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,7 +36,7 @@ SEPTEMBER = [
 def test_pages_require_login():
     c = TestClient(main.app)
     for path in ("/", "/movimientos", "/analisis", "/analisis/categoria?nombre=Supermercado", "/ajustes",
-                 "/upload", "/revisar", "/api/data"):
+                 "/upload", "/revisar", "/api/data", "/apuntar"):
         response = c.get(path, follow_redirects=False)
         assert (response.status_code, response.headers["location"]) == (303, "/login")
 
@@ -56,7 +58,8 @@ def test_login_is_rate_limited():
 def test_posts_need_login_too():
     c = TestClient(main.app)
     for path in ("/ajustes/presupuestos", "/ajustes/objetivos", "/movimientos/categoria", "/movimientos/nota",
-                 "/movimientos/automatica"):
+                 "/movimientos/automatica", "/movimientos/efectivo", "/movimientos/borrar", "/apuntar",
+                 "/apuntar/deshacer"):
         response = c.post(path, data={"categoria": "Hogar", "importe": "10", "tx_id": "x", "category": "Hogar"},
                           follow_redirects=False)
         assert (response.status_code, response.headers["location"]) == (303, "/login")
@@ -232,7 +235,8 @@ def test_goals_are_editable_and_used_by_the_analysis(client, today):
 def test_every_page_renders(client, today):
     upload(client, SEPTEMBER + AUGUST)
     for path in ("/", "/movimientos", "/movimientos?q=mercadona", "/analisis", "/analisis?periodo=todo",
-                 "/analisis/categoria?nombre=Supermercado", "/ajustes", "/upload", "/revisar", "/login"):
+                 "/analisis/categoria?nombre=Supermercado", "/ajustes", "/upload", "/revisar", "/login",
+                 "/apuntar"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert "/static/app.css?v=" in response.text
@@ -320,3 +324,179 @@ def test_home_categories_open_their_movements(client, today):
 def test_movements_without_data_invite_to_upload(client):
     page = client.get("/movimientos").text
     assert "Todavía no hay movimientos." in page and 'href="/upload"' in page
+
+
+# ── Cash written down by hand ────────────────────────────────────────────────
+
+WITHDRAWAL = [bbva_row(datetime(2026, 9, 5), "RETIRADA EFECTIVO CAJERO", -100, 900.0)]
+
+
+def cash_rows():
+    return [t for t in repo.load_ledger()["transactions"] if t["account"] == "efectivo"]
+
+
+def test_add_cash_expense_and_undo(client, today):
+    upload(client, WITHDRAWAL)
+    page = client.get("/apuntar").text
+    assert "Gasto en efectivo" in page and 'id="keypad"' in page and "Supermercado" in page
+    assert "Del cajero, sin apuntar (último mes): <b class=\"num\">100,00\u00a0€</b>" in page
+
+    saved = client.post("/apuntar", data={"importe": "12,50", "categoria": "Supermercado", "donde": " Frutería ",
+                                          "dia": "hoy"}, follow_redirects=False)
+    assert saved.status_code == 303
+    [tx] = cash_rows()
+    assert saved.headers["location"] == "/apuntar?" + urlencode({"ok": tx["id"]})
+    assert (tx["amount"], tx["date"], tx["merchant"], tx["category"]) == (-12.5, "2026-09-24", "Frutería", "Supermercado")
+    page = client.get(saved.headers["location"]).text
+    assert "Apuntados <b class=\"num\">12,50\u00a0€</b> en Supermercado, hoy." in page
+    assert "87,50\u00a0€" in page and "Últimos apuntados" in page
+
+    # It moves money from Efectivo to Supermercado: the month total doesn't change
+    sep = client.get("/api/data").json()["months"]["2026-09"]
+    assert sep["summary"] == {"Efectivo": 87.5, "Supermercado": 12.5} and sep["total_expense"] == 100.0
+
+    undone = client.post("/apuntar/deshacer", data={"tx_id": tx["id"]}, follow_redirects=False)
+    assert undone.headers["location"] == "/apuntar?ok=deshecho" and cash_rows() == []
+    again = client.post("/apuntar/deshacer", data={"tx_id": tx["id"]}, follow_redirects=False)
+    assert again.headers["location"] == "/apuntar?ok=no_encontrado"
+
+
+def test_add_cash_validation(client, today):
+    cases = [
+        ({"importe": "0", "categoria": "Supermercado"}, "Escribid un importe mayor que 0"),
+        ({"importe": "12.000,00", "categoria": "Supermercado"}, "Escribid un importe mayor que 0"),
+        ({"importe": "doce", "categoria": "Supermercado"}, "Escribid un importe mayor que 0"),
+        ({"importe": "12", "categoria": "Efectivo"}, "Elegid una categoría"),
+        ({"importe": "12", "categoria": "Ingresos"}, "Elegid una categoría"),
+        ({"importe": "12", "categoria": "Hogar", "dia": "otro", "fecha": "2026-09-25"}, "no puede ser en el futuro"),
+    ]
+    for data, message in cases:
+        response = client.post("/apuntar", data={"donde": "Mercado", **data})
+        assert response.status_code == 422, data
+        assert message in response.text and "No se ha apuntado nada." in response.text
+        assert 'value="Mercado"' in response.text  # what you typed is still there
+    assert cash_rows() == []
+    ok = client.post("/apuntar", data={"importe": "1.234,5", "categoria": "Hogar", "dia": "otro", "fecha": "2026-08-31"},
+                     follow_redirects=False)
+    assert ok.status_code == 303
+    [tx] = cash_rows()
+    assert (tx["amount"], tx["date"], tx["merchant"]) == (-1234.5, "2026-08-31", "Gasto en efectivo")
+    yesterday = client.post("/apuntar", data={"importe": "3", "categoria": "Otros", "dia": "ayer"}, follow_redirects=False)
+    assert yesterday.status_code == 303
+    assert sorted(t["date"] for t in cash_rows()) == ["2026-08-31", "2026-09-23"]
+
+
+def test_cash_in_movements_can_be_changed_or_deleted(client, today):
+    upload(client, SEPTEMBER + WITHDRAWAL)
+    client.post("/apuntar", data={"importe": "12,50", "categoria": "Supermercado", "donde": "Frutería"})
+    [tx] = cash_rows()
+    anchor = main._tx_anchor(tx["id"])
+    page = client.get("/movimientos").text
+    assert "Frutería" in page and "efectivo</span>" in page and "87,50\u00a0€ sin apuntar" in page
+    assert "Borrar este gasto" in page
+    # the month total counts the withdrawal only for what isn't written down
+    assert "salen <b class=\"num\">157,70\u00a0€</b>" in page
+
+    changed = client.post("/movimientos/efectivo", data={
+        "tx_id": tx["id"], "importe": "15", "fecha": "2026-09-23", "donde": "Mercado", "category": "Hogar",
+        "mes": "2026-09"}, follow_redirects=False)
+    assert changed.headers["location"] == f"/movimientos?mes=2026-09&ok=efectivo&ver={anchor}#{anchor}"
+    [tx] = cash_rows()
+    assert (tx["amount"], tx["date"], tx["merchant"], tx["category"]) == (-15.0, "2026-09-23", "Mercado", "Hogar")
+
+    for bad in ({"importe": "0"}, {"fecha": "2026-10-01"}, {"category": "Efectivo"}):
+        data = {"tx_id": tx["id"], "importe": "15", "fecha": "2026-09-23", "category": "Hogar", **bad}
+        assert "ok=efectivo_mal" in client.post("/movimientos/efectivo", data=data, follow_redirects=False).headers["location"]
+    assert client.post("/movimientos/categoria", data={"tx_id": tx["id"], "category": "Ingresos"}).status_code == 400
+
+    # Movements from the bank can't be changed or deleted this way
+    bank = next(t for t in repo.load_ledger()["transactions"] if t["concept"] == "MERCADONA VALENCIA")
+    data = {"tx_id": bank["id"], "importe": "1", "fecha": "2026-09-01", "category": "Hogar"}
+    assert "ok=no_encontrado" in client.post("/movimientos/efectivo", data=data, follow_redirects=False).headers["location"]
+    assert "ok=no_encontrado" in client.post("/movimientos/borrar", data={"tx_id": bank["id"]},
+                                             follow_redirects=False).headers["location"]
+
+    deleted = client.post("/movimientos/borrar", data={"tx_id": tx["id"], "mes": "2026-09"}, follow_redirects=False)
+    assert deleted.headers["location"] == "/movimientos?mes=2026-09&ok=borrado"
+    assert cash_rows() == [] and len(repo.load_ledger()["transactions"]) == 4
+
+
+def test_cash_does_not_make_the_bank_data_look_up_to_date(client, today):
+    upload(client, SEPTEMBER)
+    client.post("/apuntar", data={"importe": "3", "categoria": "Cafés y Snacks"})
+    page = client.get("/").text
+    assert "Datos hasta el 20 sep" in page
+
+
+def test_deleting_a_month_keeps_cash(client, today):
+    upload(client, SEPTEMBER)
+    client.post("/apuntar", data={"importe": "3", "categoria": "Cafés y Snacks"})
+    page = client.get("/upload").text
+    assert "3 movimientos y 1 apuntado a mano" in page and "Lo apuntado a mano se queda." in page
+    client.post("/delete-month", data={"month": "2026-09"})
+    assert len(cash_rows()) == 1 and len(repo.load_ledger()["transactions"]) == 1
+
+
+# ── Installing on the phone ──────────────────────────────────────────────────
+
+def test_install_files_need_no_password_and_carry_no_data():
+    c = TestClient(main.app)
+    manifest = c.get("/manifest.webmanifest")
+    assert manifest.status_code == 200
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    data = manifest.json()
+    assert (data["short_name"], data["start_url"], data["display"]) == ("Gastos", "/", "standalone")
+    assert {i["sizes"] for i in data["icons"]} >= {"192x192", "512x512"}
+    assert any(i.get("purpose") == "maskable" for i in data["icons"])
+    assert data["shortcuts"][0]["url"] == "/apuntar"
+    for icon in data["icons"] + data["shortcuts"][0]["icons"]:
+        assert c.get(icon["src"]).status_code == 200, icon["src"]
+
+    worker = c.get("/sw.js")
+    assert worker.status_code == 200
+    assert worker.headers["content-type"].startswith("application/javascript")
+    assert worker.headers["cache-control"] == "no-cache"
+    assert f"gastos-{main._asset_version()}" in worker.text and "'/espera'" in worker.text
+    assert f"SLOW_MS = {main.WAKE_UP_WAIT_MS};" in worker.text
+
+    waiting = c.get("/espera")
+    assert waiting.status_code == 200
+    assert "Despertando el servidor" in waiting.text and "Sin conexión" in waiting.text
+    assert "<svg" in waiting.text and "fonts.googleapis" not in waiting.text  # works offline on its own
+
+
+def test_pages_link_the_manifest_and_the_service_worker(client, today):
+    for path in ("/", "/login", "/apuntar"):
+        page = client.get(path).text
+        assert '<link rel="manifest" href="/manifest.webmanifest">' in page, path
+        assert "serviceWorker.register('/sw.js')" in page and 'rel="apple-touch-icon"' in page
+    assert 'id="instalar" hidden' in client.get("/ajustes").text
+
+
+def test_a_session_in_use_is_renewed_once_a_day(monkeypatch):
+    c = TestClient(main.app)
+    fresh = main._make_session_token()
+    c.cookies.set(main.COOKIE_NAME, fresh)
+    assert "set-cookie" not in c.get("/").headers  # signed today: nothing to renew
+
+    two_days_ago = time.time() - 2 * 86400
+    monkeypatch.setattr("itsdangerous.timed.time.time", lambda: two_days_ago)
+    old = main._make_session_token()
+    monkeypatch.undo()
+    c.cookies.set(main.COOKIE_NAME, old)
+    renewed = c.get("/", follow_redirects=False)
+    assert renewed.status_code == 200
+    assert f"{main.COOKIE_NAME}=" in renewed.headers["set-cookie"] and "Max-Age=2592000" in renewed.headers["set-cookie"]
+    new_token = renewed.headers["set-cookie"].split(";")[0].split("=", 1)[1]
+    age = main._session_age(new_token)
+    assert new_token != old and age is not None and age < 60
+
+    # Expired sessions are not brought back
+    a_month_ago = time.time() - 31 * 86400
+    monkeypatch.setattr("itsdangerous.timed.time.time", lambda: a_month_ago)
+    expired = main._make_session_token()
+    monkeypatch.undo()
+    c2 = TestClient(main.app)
+    c2.cookies.set(main.COOKIE_NAME, expired)
+    response = c2.get("/", follow_redirects=False)
+    assert response.headers["location"] == "/login" and "set-cookie" not in response.headers

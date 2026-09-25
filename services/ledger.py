@@ -21,6 +21,10 @@ another id (from another source, or from a source that renumbers) is
 detected and kept once; the second id is remembered in "alt_ids" so it is
 skipped next time.
 
+Cash paid by hand is stored here too, under its own account "efectivo"
+and ids starting with "m:" (see services/cash.py for how it fits with the
+cash machine).
+
 Months are not stored: they are computed from the movement dates.
 """
 
@@ -28,11 +32,13 @@ from __future__ import annotations
 
 import hashlib
 import re
+import secrets
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from typing import Any, Iterable, Mapping
 
+from services import cash
 from services import categorizer as cat
 
 Transaction = dict[str, Any]
@@ -195,7 +201,7 @@ def set_category(ledger: Ledger, tx_id: str, category: str) -> Transaction | Non
 def reset_category(ledger: Ledger, tx_id: str, rules: Iterable[Mapping[str, str]]) -> Transaction | None:
     """Undo a category set by hand: the movement goes back to what the rules say."""
     tx = find(ledger, tx_id)
-    if tx is not None and tx.get("category_source") == cat.SOURCE_USER:
+    if tx is not None and tx.get("category_source") == cat.SOURCE_USER and not cash.is_cash(tx):
         tx["category_source"] = cat.SOURCE_NONE
         categorize_transaction(tx, cat.compile_rules(rules))
     return tx
@@ -210,6 +216,60 @@ def set_note(ledger: Ledger, tx_id: str, note: str | None) -> Transaction | None
             tx["note"] = text
         else:
             tx.pop("note", None)
+    return tx
+
+
+# ── Cash written down by hand ────────────────────────────────────────────────
+
+def _fill_cash(tx: Transaction, amount: float, day: str, place: str, category: str) -> None:
+    tx["date"] = day
+    tx["amount"] = -round(abs(float(amount)), 2)
+    tx["concept"] = place or cash.DEFAULT_NAME
+    tx["merchant"] = place or cash.DEFAULT_NAME
+    tx["category"] = category
+    tx["category_source"] = cat.SOURCE_USER
+
+
+def new_cash_expense(*, amount: float, category: str, day: str, place: str, now: str) -> Transaction:
+    """A cash expense as a ledger movement. Two equal coffees on one day are two expenses, so the id is random."""
+    tx = make_transaction(
+        id=f"{cash.ID_PREFIX}:{cash.CASH_ACCOUNT}:{secrets.token_hex(10)}",
+        account=cash.CASH_ACCOUNT,
+        date=day,
+        amount=amount,
+        concept=place,
+        details=cash.CASH_DETAILS,
+        source=cash.MANUAL_SOURCE,
+        imported_at=now,
+    )
+    _fill_cash(tx, amount, day, place, category)
+    return tx
+
+
+def add_cash(ledger: Ledger, tx: Transaction) -> Transaction:
+    ledger["transactions"].append(tx)
+    ledger["transactions"].sort(key=lambda t: (t.get("date") or "", t["id"]))
+    return tx
+
+
+def update_cash(
+    ledger: Ledger, tx_id: str, *, amount: float, day: str, place: str, category: str,
+) -> Transaction | None:
+    """Change a cash expense. Movements from the bank can't be changed; None if it isn't a cash expense."""
+    tx = find(ledger, tx_id)
+    if tx is None or not cash.is_cash(tx):
+        return None
+    _fill_cash(tx, amount, day, place, category)
+    ledger["transactions"].sort(key=lambda t: (t.get("date") or "", t["id"]))
+    return tx
+
+
+def delete_cash(ledger: Ledger, tx_id: str) -> Transaction | None:
+    """Remove a cash expense (never a movement from the bank). Returns what was removed."""
+    tx = find(ledger, tx_id)
+    if tx is None or not cash.is_cash(tx):
+        return None
+    ledger["transactions"].remove(tx)
     return tx
 
 
@@ -381,15 +441,19 @@ def month_of(tx: Mapping[str, Any]) -> str | None:
     return tx.get("month_hint")
 
 
-def summarize(transactions: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+def summarize(
+    transactions: Iterable[Mapping[str, Any]], covered: Mapping[str, float] | None = None,
+) -> dict[str, Any]:
     """
     Spending per category (refunds reduce their category), income and balance.
-    Only "Ingresos" counts as income; everything else is spending.
+    Only "Ingresos" counts as income; everything else is spending. With
+    `covered` (cash.cover), a withdrawal only counts for the part not written
+    down as cash expenses, so no euro counts twice.
     """
     spending: dict[str, float] = defaultdict(float)
     income = 0.0
     for tx in transactions:
-        amount = float(tx["amount"])
+        amount = cash.uncovered(tx, covered or {})
         category = tx.get("category") or cat.UNCATEGORIZED
         if category == cat.INCOME:
             income += amount
@@ -411,25 +475,39 @@ def _newest_first(txs: Iterable[Transaction]) -> list[Transaction]:
 
 
 def month_summaries(ledger: Ledger) -> list[dict[str, Any]]:
-    """One entry per month, oldest first, shaped like the old data.json months."""
+    """
+    One entry per month, oldest first, shaped like the old data.json months.
+    "covered" holds, for the month's withdrawals, how much is written down as cash expenses.
+    """
+    covered = cash.cover(ledger["transactions"])
     groups: dict[str, list[Transaction]] = defaultdict(list)
     for tx in ledger["transactions"]:
         month = month_of(tx)
         if month:
             groups[month].append(tx)
-    return [
-        {"month": month, "transactions": _newest_first(groups[month]), **summarize(groups[month])}
-        for month in sorted(groups)
-    ]
+    out = []
+    for month in sorted(groups):
+        txs = groups[month]
+        out.append({
+            "month": month,
+            "transactions": _newest_first(txs),
+            **summarize(txs, covered),
+            "covered": {tx["id"]: covered[tx["id"]] for tx in txs if tx["id"] in covered},
+        })
+    return out
 
 
 def months_overview(ledger: Ledger) -> list[dict[str, Any]]:
-    """Newest month first, with counts, for the import page."""
+    """Months with statement movements, newest first, with counts, for the import page."""
     out = []
     for m in reversed(month_summaries(ledger)):
+        bank = [tx for tx in m["transactions"] if not cash.is_cash(tx)]
+        if not bank:
+            continue
         out.append({
             "month": m["month"],
-            "count": len(m["transactions"]),
+            "count": len(bank),
+            "cash": len(m["transactions"]) - len(bank),
             "income": m["income"],
             "total_expense": m["total_expense"],
             "needs_review": sum(1 for tx in m["transactions"] if needs_review(tx)),
@@ -438,8 +516,16 @@ def months_overview(ledger: Ledger) -> list[dict[str, Any]]:
 
 
 def last_date(ledger: Ledger) -> str | None:
-    """Date of the newest movement: how up to date the data is."""
+    """Date of the newest movement, cash written down by hand included."""
     return max((str(tx["date"]) for tx in ledger["transactions"] if tx.get("date")), default=None)
+
+
+def bank_last_date(ledger: Ledger) -> str | None:
+    """Date of the newest movement from the bank: how up to date the month is."""
+    return max(
+        (str(tx["date"]) for tx in ledger["transactions"] if tx.get("date") and not cash.is_cash(tx)),
+        default=None,
+    )
 
 
 _AMOUNT_QUERY = re.compile(r"[+\-−]?\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:[.,](\d{1,2}))?\s*(?:€|EUR)?", re.IGNORECASE)
@@ -527,6 +613,9 @@ def review_groups(ledger: Ledger, query: str | None = None, limit: int = 150) ->
 
 
 def delete_month(ledger: Ledger, month: str) -> int:
+    """Remove a month's statement movements; cash written down by hand stays."""
     before = len(ledger["transactions"])
-    ledger["transactions"] = [tx for tx in ledger["transactions"] if month_of(tx) != month]
+    ledger["transactions"] = [
+        tx for tx in ledger["transactions"] if month_of(tx) != month or cash.is_cash(tx)
+    ]
     return before - len(ledger["transactions"])

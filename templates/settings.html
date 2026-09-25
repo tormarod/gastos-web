@@ -28,6 +28,12 @@
   .field input { width: 100%; }
   .fields-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .help { font-size: .8rem; color: var(--muted); line-height: 1.5; }
+
+  .install { border-color: var(--pen); box-shadow: inset 0 0 0 1px var(--pen), var(--shadow); margin-bottom: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .install > h2 { margin-bottom: 0; }
+  .install .how { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .install ol { margin: 0; padding-left: 20px; font-size: .9rem; display: flex; flex-direction: column; gap: 3px; }
+  .install ol svg { width: 16px; height: 16px; vertical-align: -3px; fill: none; stroke: var(--pen); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 {% endblock %}
 
 {% block content %}
@@ -45,6 +51,25 @@
   <span>Propuesta con la media de {{ suggestion_months[0] | month_name }}{% if suggestion_months | length > 1 %} a {{ suggestion_months[-1] | month_name }}{% endif %}.
   Repasadla y pulsad <b>Guardar presupuesto</b>: hasta entonces no cambia nada. <a href="/ajustes">Descartar</a></span></div>
 {% endif %}
+
+<section class="card install" id="instalar" hidden aria-labelledby="install-title">
+  <h2 id="install-title">Instalar en el móvil</h2>
+  <p class="help">Tened Gastos como una app más: con su icono, a pantalla completa y sin la barra del navegador.</p>
+  <div class="how" data-os="ios">
+    <h3>iPhone, en Safari</h3>
+    <ol>
+      <li>Tocad Compartir <svg aria-label="(el cuadrado con la flecha hacia arriba)" role="img"><use href="#t-share"/></svg></li>
+      <li>«Añadir a pantalla de inicio»</li>
+      <li>«Añadir»</li>
+    </ol>
+    <p class="help">La app instalada pide la contraseña una vez: guarda su propia sesión, aparte de Safari.</p>
+  </div>
+  <div class="how" data-os="android">
+    <h3>Android, en Chrome</h3>
+    <button class="btn btn-primary btn-block" id="install-button" type="button" hidden>Instalar Gastos</button>
+    <p class="help">Si no sale el botón: menú ⋮ › «Instalar aplicación» o «Añadir a pantalla de inicio».</p>
+  </div>
+</section>
 
 <div class="settings">
   <section class="card" id="presupuesto">
@@ -107,4 +132,39 @@
     </form>
   </section>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Only on a phone, and only until Gastos is opened as an installed app.
+  (() => {
+    const card = document.getElementById('instalar');
+    const button = document.getElementById('install-button');
+    const installed = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    const ua = navigator.userAgent;
+    const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const android = /Android/.test(ua);
+    if (installed || !(ios || android || window.matchMedia('(pointer: coarse)').matches)) return;
+    card.querySelectorAll('[data-os]').forEach((block) => {
+      block.hidden = (ios && block.dataset.os !== 'ios') || (android && block.dataset.os !== 'android');
+    });
+    card.hidden = false;
+
+    let offer = null;
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault();
+      offer = event;
+      button.hidden = false;
+    });
+    button.addEventListener('click', async () => {
+      if (!offer) return;
+      offer.prompt();
+      const choice = await offer.userChoice;
+      offer = null;
+      button.hidden = true;
+      if (choice.outcome === 'accepted') card.hidden = true;
+    });
+    window.addEventListener('appinstalled', () => { card.hidden = true; });
+  })();
+</script>
 {% endblock %}

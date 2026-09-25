@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F3F4F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111319" media="(prefers-color-scheme: dark)">
+<meta name="robots" content="noindex">
+<title>Gastos</title>
+{# Shown by the service worker while the server wakes up or there is no connection,
+   so everything it needs is in this file: no fonts, styles or data from outside. #}
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #F3F4F7; --card: #FFFFFF; --ink: #1A1E29; --muted: #5D6474; --faint: #868C9C; --line: #DCE0E8;
+    --pen: #2440C4; --pen-ink: #FFFFFF; --pen-soft: #E6EAFB;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --paper: #111319; --card: #1A1D26; --ink: #E7E9F0; --muted: #A3A9B8; --faint: #7E8494; --line: #2B303C;
+      --pen: #8FA3FF; --pen-ink: #0E1330; --pen-soft: #242C52;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+  }
+  main { max-width: 22rem; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .icon { width: 72px; height: 72px; }
+  #slow, #offline { display: flex; flex-direction: column; gap: 8px; }
+  .icon svg { width: 100%; height: 100%; display: block; }
+  h1 { font-size: 1.35rem; line-height: 1.25; margin: 0; letter-spacing: -0.01em; }
+  p { margin: 0; color: var(--muted); font-size: .95rem; line-height: 1.5; }
+  .progress { width: 160px; height: 4px; border-radius: 2px; background: var(--pen-soft); overflow: hidden; position: relative; }
+  .progress i { position: absolute; top: 0; bottom: 0; left: -40%; width: 40%; border-radius: 2px; background: var(--pen); animation: slide 1.6s ease-in-out infinite; }
+  @keyframes slide { to { left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .progress i { animation: none; left: 30%; } }
+  .since { font-size: .85rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+  button {
+    font: inherit; font-size: .9rem; font-weight: 700; padding: 10px 18px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  }
+  button:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="icon" aria-hidden="true">{{ icon_svg | safe }}</div>
+  <div aria-live="polite">
+  <div id="slow">
+    <h1>Despertando el servidor…</h1>
+    <p>Tras 15 minutos sin uso, el servidor se duerme. Tarda unos 30 segundos en volver y esta pantalla se cambia sola.</p>
+  </div>
+  <div id="offline" hidden>
+    <h1>Sin conexión</h1>
+    <p>Gastos necesita internet para ver y apuntar. En cuanto vuelva, se abre sola.</p>
+  </div>
+  </div>
+  <div class="progress" aria-hidden="true"><i></i></div>
+  <p class="since" id="since">Conectando…</p>
+  <button type="button" id="retry">Reintentar</button>
+</main>
+<script>
+  (() => {
+    const started = Date.now();
+    const since = document.getElementById('since');
+    const show = (offline) => {
+      document.getElementById('offline').hidden = !offline;
+      document.getElementById('slow').hidden = offline;
+    };
+    const open = () => {
+      // Opened as /espera itself: go to Inicio; otherwise, load the page that was on its way.
+      if (location.pathname === '/espera') location.replace('/');
+      else location.reload();
+    };
+    let timer = null;
+    async function check() {
+      clearTimeout(timer);
+      const stop = new AbortController();
+      const limit = setTimeout(() => stop.abort(), 8000);
+      try {
+        const response = await fetch('/healthz', { cache: 'no-store', signal: stop.signal });
+        if (response.ok) { open(); return; }
+        show(false);
+      } catch (error) {
+        show(error.name !== 'AbortError');  // an answer that is slow is the server waking up
+      } finally {
+        clearTimeout(limit);
+      }
+      timer = setTimeout(check, 2000);
+    }
+    setInterval(() => {
+      const seconds = Math.round((Date.now() - started) / 1000);
+      since.textContent = seconds < 2 ? 'Conectando…' : `Lleva ${seconds} segundos`;
+    }, 1000);
+    document.getElementById('retry').addEventListener('click', check);
+    window.addEventListener('online', check);
+    check();
+  })();
+</script>
+</body>
+</html>

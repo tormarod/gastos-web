@@ -117,6 +117,7 @@ h3 { font-size: .95rem; font-weight: 600; }
 }
 :focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; border-radius: 4px; }
 svg.i { width: 1em; height: 1em; flex: none; }
+[hidden] { display: none !important; }
 
 /* ── Layout and navigation ───────────────────────────────────────────── */
 
@@ -138,6 +139,7 @@ svg.i { width: 1em; height: 1em; flex: none; }
 .nav a svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .nav a:hover, .logout:hover { color: var(--ink); background: var(--sunk); }
 .nav a[aria-current="page"] { color: var(--pen); background: var(--pen-soft); }
+.nav a.add svg { color: var(--pen); }
 .settings-link {
   display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border-radius: 9px;
   color: var(--muted); text-decoration: none; font-weight: 600; font-size: .9rem;
@@ -174,6 +176,7 @@ svg.i { width: 1em; height: 1em; flex: none; }
   .tabbar a span:not(.count) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tabbar a svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .tabbar a[aria-current="page"] { color: var(--pen); }
+  .tabbar a.add svg { color: var(--pen); }  /* Añadir: a filled circle, the one thing you do on the go */
   .tabbar .count { position: absolute; top: -2px; left: calc(50% + 6px); min-width: 17px; height: 17px; font-size: .66rem; padding: 0 5px; }
 }
 
@@ -340,6 +343,7 @@ svg.spark .bar { fill: var(--c-spark); }
 svg.spark .last { fill: var(--c-var); }
 svg.spark .zero { fill: var(--line); }
 .back { font-size: .88rem; font-weight: 600; text-decoration: none; }
+.wrap > .seg { margin-bottom: 18px; }
 
 /* Rows and meters that open their movements */
 a.meter-link, a.row-link { color: inherit; text-decoration: none; border-radius: 8px; margin-inline: -8px; padding: 5px 8px; }

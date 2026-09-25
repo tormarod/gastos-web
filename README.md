@@ -26,6 +26,8 @@ No database. All financial data lives in a few JSON files in S3.
 - **Ajustes** — monthly budget per category (filled in from your 3-month average with one click), which categories are fixed, and the savings goals
 - **Movimientos** — every movement grouped by day; search by merchant, bank text, note or amount (a new search looks in every month), filter by month and category, change a category (or send it back to the rules) and add a note
 - **Análisis** — for the last 12 months, a year or everything: average spending (fixed and variable), income, saving against the goal, fixed vs variable spending per month, saving per month, and every category with its trend and budget; each category opens a detail page with its months and the merchants where it goes
+- **Añadir** — write down a cash expense in three taps (amount on the app's own keypad, category, Apuntar); where and which day are optional, «Deshacer» right after; the statement upload lives here too
+- **Installable** — add it to the phone's home screen from the browser (no app store): full screen, its own icon, a «Despertando el servidor…» screen while Render wakes up, and a session that stays open while you use it
 - **Dynamic insights** — spending spikes, streaks, year-end savings projection (closed months only)
 - **Secure** — password-protected with login rate limiting, HTTPS-only cookies in production, same-origin form checks, least-privilege S3 access
 
@@ -71,7 +73,7 @@ See [`DEPLOY.md`](DEPLOY.md) for the full step-by-step guide (S3 and Render).
 ## Monthly workflow
 
 1. Log in to BBVA online → download the shared account's movements as **Excel (.xlsx)**. Several months at once is fine.
-2. Open the app → **Subir extracto** → drop the file(s). No month to pick; movements already stored are skipped.
+2. Open the app → **Añadir** → **Extracto del banco** → drop the file(s). No month to pick; movements already stored are skipped.
 3. When the **Revisar** badge shows a number, open it and assign a category (or save a rule).
 4. **Inicio** shows how the month is going. If the last movement is more than a week old, it reminds you to upload.
 
@@ -90,6 +92,22 @@ See [`DEPLOY.md`](DEPLOY.md) for the full step-by-step guide (S3 and Render).
 - **Figures**: average spending (fixed and variable), average income, average saving against the goal in Ajustes and how many months met it. With 3 or more months in the previous period, each figure also shows how it changed.
 - **Categories**: average of the closed months, a small bar per month and the budget; a warning when the average (rounded to euros) is over it. The detail page adds the months over budget and the four merchants with the most spending.
 
+## How cash works
+
+- Taking money out of a cash machine counts as spending in **Efectivo**, the day it is taken out.
+- A cash expense written down in **Añadir** counts in its own category and day, and is taken from the newest withdrawal on or before that day (then older ones, up to a month back). That part of the withdrawal stops counting as Efectivo, so nothing is counted twice: the month's total stays the same. Example: 100 € out on 29 August, 30 € at the greengrocer's on 2 September → August Efectivo 70 €, September Supermercado 30 €.
+- An expense no withdrawal can cover (money someone gave you, or a withdrawal not uploaded yet) counts as new spending; uploading the statement later puts it in place by itself, because the split is worked out every time and never stored.
+- Efectivo is what was taken out and not written down yet. Each withdrawal says so in Movimientos, whose totals count it the same way.
+- Cash expenses are stored in `ledger.json` under their own account (`efectivo`, ids `m:efectivo:…`), so importing a statement never takes one for a bank movement, and deleting a month only removes what came from the Excel.
+- Inicio's «Datos hasta el…» and pace still use the last movement from the bank.
+
+## Installing on the phone
+
+- **iPhone**: in Safari, Share → «Añadir a pantalla de inicio». The installed app keeps its own session, so it asks for the password once.
+- **Android**: in Chrome, the «Instalar Gastos» button in Ajustes, or menu ⋮ → «Instalar aplicación». Long-pressing the icon offers «Apuntar efectivo».
+- The service worker (`/sw.js`) only stores the waiting screen (`/espera`). If a page takes more than 4 seconds (Render waking up) or can't be fetched, that screen shows instead of a blank one and opens the page by itself once `/healthz` answers. No movement is ever stored on the phone.
+- The session is renewed once a day while in use; the password is asked again after 30 days without opening the app.
+
 ## Project structure
 
 ```
@@ -100,6 +118,7 @@ gastos-web/
 │   ├── ledger.py            # Movements: ids, import & dedupe, monthly summaries, review groups
 │   ├── budget.py            # Budgets and goals: month overview for Inicio, suggestions for Ajustes
 │   ├── analysis.py          # Análisis: periods, averages, fixed vs variable, categories, category detail
+│   ├── cash.py              # Cash: which withdrawal covers each cash expense, what is left, form input
 │   ├── parser.py            # BBVA XLSX parser (header-row auto-detection)
 │   ├── repo.py              # Load/save ledger, rules, settings; v1 → v2 migration on first read
 │   ├── migration.py         # data.json + merchant_rules.json → ledger.json + rules.json
@@ -112,10 +131,17 @@ gastos-web/
 │   ├── analysis.html        # Análisis
 │   ├── category.html        # One category in detail
 │   ├── settings.html        # Ajustes: budgets and goals
+│   ├── add.html             # Añadir: cash expense with its own keypad, last ones written down
+│   ├── wait.html            # «Despertando el servidor…» / «Sin conexión», shown by the service worker
+│   ├── sw.js                # Service worker (served at /sw.js)
+│   ├── _app_head.html       # Manifest, icons and service worker registration
 │   ├── login.html
 │   ├── review.html          # Revisar: uncategorised movements, search, rules
-│   └── upload.html          # Excel import and saved months
-├── static/app.css           # Shared styles and colour tokens (light and dark)
+│   └── upload.html          # Excel import and saved months (inside Añadir)
+├── static/
+│   ├── app.css              # Shared styles and colour tokens (light and dark)
+│   ├── manifest.webmanifest # Name, colours, icons and the «Apuntar efectivo» shortcut
+│   └── icons/               # App icon (SVG, and PNG at 180, 192 and 512 px) and favicon
 └── tests/                   # pytest suite (no network or AWS needed)
 ```
 
@@ -123,7 +149,7 @@ gastos-web/
 
 | Key | Content |
 |---|---|
-| `ledger.json` | Every movement once: date, amount, concept, category and where it came from |
+| `ledger.json` | Every movement once: date, amount, concept, category and where it came from; cash expenses written down by hand too |
 | `rules.json` | Your rules: text pattern → category |
 | `settings.json` | Budgets per category, fixed categories and savings goals (created the first time you save Ajustes) |
 | `statements/` | Uploaded Excel files |
